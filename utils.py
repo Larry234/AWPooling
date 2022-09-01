@@ -29,45 +29,21 @@ def get_network(net, num_class=100, device=None):
     elif net == 'vgg11':
         from models.vgg import vgg11_bn
         model = vgg11_bn(num_class=num_class)
-    elif net == 'vgg11cp':
-        from models.vgg import vgg11_CP
-        model = vgg11_CP(num_class=num_class)
-    elif net == 'vgg11cpb':
-        from models.vgg import vgg11_CPB
-        model = vgg11_CPB(num_class=num_class)
-    elif net == 'vgg11em':
-        from models.vgg import vgg11_EM
-        model = vgg11_EM(num_class=num_class)
-    elif net == 'vgg11fcp':
-        from models.vgg import vgg11_FCP
-        model = vgg11_FCP(num_class=num_class)
-    elif net == 'vgg16cp':
-        from models.vgg import vgg16_bn_CP
-        model = vgg16_bn_CP(num_class=num_class)
-    elif net == 'vgg16cpb':
-        from models.vgg import vgg16_bn_CPB
-        model = vgg16_bn_CPB(num_class=num_class)
-    elif net == 'vggsmall':
-        from models.custom import vgg_small
-        model = vgg_small()
-    elif net == 'vggsmallcp':
-        from models.custom import vgg_small_CP
-        model = vgg_small_CP()
-    elif net == 'vggsmallcpb':
-        from models.custom import vgg_small_CPB
-        model = vgg_small_CPB()
-    elif net == 'vggmedium':
-        from models.custom import vgg_medium
-        net = vgg_medium()
-    elif net == 'vggmediumcp':
-        from models.custom import vgg_medium_CP
-        model = vgg_medium_CP()
-    elif net == 'vggmediumcpb':
-        from models.custom import vgg_medium_CPB
-        model = vgg_medium_CPB()
     elif net == 'vgg19':
         from models.vgg import vgg19_bn
-        model = vgg19_bn()
+        model = vgg19_bn(num_class=num_class)
+    elif net == 'vgg11aw':
+        from models.vgg import vgg11_AW
+        model = vgg11_AW(num_class=num_class)
+    elif net ==' vgg13aw':
+        from models.vgg import vgg13_AW
+        model = vgg13_AW(num_class=num_class)
+    elif net == 'vgg16aw':
+        from models.vgg import vgg16_AW
+        model = vgg16_AW(num_class=num_class)
+    elif net == 'vgg19aw':
+        from models.vgg import vgg19_AW
+        model = vgg19_AW(num_class=num_class)
     elif net == 'densenet121':
         from models.densenet import densenet121
         model = densenet121()

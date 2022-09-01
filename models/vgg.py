@@ -11,22 +11,18 @@
 import torch
 import torch.nn as nn
 
-from .ConcatPool import *
+from .awpooling import AWPool2d
 
 
 cfg = {
     'A' : [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'], # 0.6814
-    'A1': [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'C'], # 0.6770
-    'A2': [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,          'CB'], # 0.6762
-    'A3': [64,    'KM', 128,     'KM', 256, 256,          'KM', 512, 512,          'KM', 1024, 1024,        'KM'],
-    'AE': [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'E'], # 0.6775
+    'AW': [64,     'AW', 128,     'AW', 256, 256,          'AW', 512, 512,          'AW', 512, 512,         'AW'], # 0.6770
     'B' : [64, 64, 'M', 128, 128, 'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'],
-    'B1': [64, 64, 'M', 128, 128, 'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'C'],
-    'B2': [64, 64, 'M', 128, 128, 'M', 256, 256,           'M', 512, 512,           'M', 512, 512,          'CB'],
+    'BW': [64, 64, 'AW', 128, 128, 'AW', 256, 256,         'AW', 512, 512,          'AW', 512, 512,          'AW'],
     'D' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256,      'M', 512, 512, 512,      'M', 512, 512, 512,      'M'],
-    'D1': [64, 64, 'M', 128, 128, 'M', 256, 256, 256,      'M', 512, 512, 512,      'M', 512, 512, 512,      'C'],
-    'D2': [64, 64, 'M', 128, 128, 'M', 256, 256, 256,      'M', 512, 512, 512,      'M', 512, 512, 512,     'CB'],
+    'DW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256,      'AW', 512, 512, 512,      'AW', 512, 512, 512,  'AW'],
     'E' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+    'EW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256, 256, 'AW', 512, 512, 512, 512, 'AW', 512, 512, 512, 512, 'AW']
 }
 
 model_urls = {
@@ -42,38 +38,27 @@ model_urls = {
 
 class VGG(nn.Module):
 
-    def __init__(self, features, num_class=100, init_weights=True, CP=False):
+    def __init__(self, features, num_class=100, init_weights=True):
         super().__init__()
         self.features = features
-        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
-        if CP:
-            self.classifier = nn.Sequential(
-                nn.Linear(2048 * 7 * 7, 4096),
-                nn.ReLU(inplace=True),
-                nn.Dropout(),
-                nn.Linear(4096, 4096),
-                nn.ReLU(inplace=True),
-                nn.Dropout(),
-                nn.Linear(4096, num_class)
-            )
-        else:
-            self.classifier = nn.Sequential(
-                nn.Linear(512 * 7 * 7, 4096),
-                nn.ReLU(inplace=True),
-                nn.Dropout(),
-                nn.Linear(4096, 4096),
-                nn.ReLU(inplace=True),
-                nn.Dropout(),
-                nn.Linear(4096, num_class)
-            )
+        # self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        self.classifier = nn.Sequential(
+            nn.Linear(512 * 1 * 1, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(4096, num_class)
+        )
         if init_weights:
             self._initialize_weights()
 
     def forward(self, x):
         output = self.features(x)
-        output = self.avgpool(output)
-        output = torch.flatten(output, start_dim=1)
-        # output = output.view(x.size(0), -1)
+        # output = self.avgpool(output)
+        # output = torch.flatten(output, start_dim=1)
+        output = output.view(x.size(0), -1)
         output = self.classifier(output)
 
         return output
@@ -95,15 +80,15 @@ def make_layers(cfg, batch_norm=False):
     layers = []
 
     input_channel = 3
+    t = 1e-2
     for l in cfg:
         if l == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
             continue
-        elif l == 'C':
-            layers += [ConcatPooling2d(kernel_size=2, stride=2)]
-            continue
-        elif l == 'CB':
-            layers += [ConcatPooling2d(kernel_size=2, stride=2), nn.Conv2d(2048, 512, kernel_size=1, stride=1)]
+        elif l == 'AW':
+            layers += [AWPool2d(kernel_size=2, stride=2, temperature=t)]
+            if t > 1: t = t * 10
+            else: t = t * 5
             continue
 
         layers += [nn.Conv2d(input_channel, l, kernel_size=3, padding=1)]
@@ -115,63 +100,30 @@ def make_layers(cfg, batch_norm=False):
         input_channel = l
 
     return nn.Sequential(*layers)
-
-def make_layersFCP(cfg, batch_norm=True):
-    layers = []
-
-    input_channel = 3
-    for l in cfg:
-        if l == 'M':
-            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            continue
-        elif l == 'KM':
-            layers += [KMaxPooling2d(kernel_size=2, stride=2)]
-            continue
-            
-        if input_channel == 3:
-            layers += [nn.Conv2d(input_channel, l, kernel_size=3, padding=1)]
-            input_channel = l
-        else:
-            layers += [nn.Conv2d(l, l, kernel_isze=3, padding=1)]
-
-        if batch_norm:
-            layers += [nn.BatchNorm2d(l)]
-
-        layers += [nn.ReLU(inplace=True)]
-        input_channel = l
-
-    return nn.Sequential(*layers)
-
     
 
 def vgg11_bn(num_class=100):
     return VGG(make_layers(cfg['A'], batch_norm=True), num_class=num_class)
 
-def vgg11_CP(num_class=100):
-    return VGG(make_layers(cfg['A1'], batch_norm=True), num_class=num_class, CP=True)
-
-def vgg11_CPB(num_class=100):
-    return VGG(make_layers(cfg['A2'], batch_norm=True), num_class=num_class)
-
-def vgg11_FCP(num_class=100):
-    return VGG(make_layersFCP(cfg['A3'], batch_norm=True), CP=True)
-
-def vgg11_EM(num_class=100):
-    return VGG(make_layers(cfg['AE'], batch_norm=True), num_class=num_class)
+def vgg11_AW(num_class=100):
+    return VGG(make_layers(cfg['AW'], batch_norm=True), num_class=num_class)
 
 def vgg13_bn(num_class=100):
     return VGG(make_layers(cfg['B'], batch_norm=True), num_class=num_class)
 
+def vgg13_AW(num_class=100):
+    return VGG(make_layers(cfg['BW'], batch_norm=True), num_class=num_class)
+
 def vgg16_bn(num_class=100):
     return VGG(make_layers(cfg['D'], batch_norm=True), num_class=num_class)
 
-def vgg16_bn_CP(num_class=100):
-    return VGG(make_layers(cfg['D1'], batch_norm=True), num_class=num_class, CP=True)
-
-def vgg16_bn_CPB(num_class=100):
-    return VGG(make_layers(cfg['D2'], batch_norm=True), num_class=num_class)
+def vgg16_AW(num_class=100):
+    return VGG(make_layers(cfg['DW'], batch_norm=True), num_class=num_class)
 
 def vgg19_bn(num_class=100):
     return VGG(make_layers(cfg['E'], batch_norm=True), num_class=num_class)
+
+def vgg19_AW(num_class=100):
+    return VGG(make_layers(cfg['EW'], batch_norm=True), num_class=num_class)
 
 
