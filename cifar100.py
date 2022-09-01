@@ -3,6 +3,7 @@ author baiyu
 """
 
 import os
+from sched import scheduler
 import sys
 import argparse
 import time
@@ -115,15 +116,15 @@ def eval_training(epoch=0, tb=True):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-net', type=str, required=True, help='net type')
-    parser.add_argument('-gpu', action='store_true', default=False, help='use gpu or not')
-    parser.add_argument('-b', type=int, default=128, help='batch size for dataloader')
-    parser.add_argument('-warm', type=int, default=1, help='warm up training phase')
-    parser.add_argument('-lr', type=float, default=0.1, help='initial learning rate')
-    parser.add_argument('-resume', action='store_true', default=False, help='resume training')
+    parser.add_argument('--net', type=str, required=True, help='net type')
+    parser.add_argument('--gpu', action='store_true', default=False, help='use gpu or not')
+    parser.add_argument('--b', type=int, default=128, help='batch size for dataloader')
+    parser.add_argument('--warm', type=int, default=1, help='warm up training phase')
+    parser.add_argument('--lr', type=float, default=0.1, help='initial learning rate')
+    parser.add_argument('--resume', action='store_true', default=False, help='resume training')
     args = parser.parse_args()
 
-    net = get_network(args)
+    net = get_network(args.net)
 
     #data preprocessing:
     cifar100_training_loader = get_training_dataloader(
@@ -160,21 +161,23 @@ if __name__ == '__main__':
 
     #use tensorboard
     if not os.path.exists(settings.LOG_DIR):
-        os.mkdir(settings.LOG_DIR)
+        os.makedirs(settings.LOG_DIR)
 
     #since tensorboard can't overwrite old values
     #so the only way is to create a new tensorboard log
     writer = SummaryWriter(log_dir=os.path.join(
             settings.LOG_DIR, args.net, settings.TIME_NOW))
     input_tensor = torch.Tensor(1, 3, 32, 32)
+
     if args.gpu:
+        net = net.cuda()
         input_tensor = input_tensor.cuda()
     writer.add_graph(net, input_tensor)
 
     #create checkpoint folder to save model
     if not os.path.exists(checkpoint_path):
         os.makedirs(checkpoint_path)
-    checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth')
+    checkpoint_path = os.path.join(checkpoint_path, '{net}-{epoch}-{type}.pth.tar')
 
     best_acc = 0.0
     if args.resume:
@@ -211,14 +214,18 @@ if __name__ == '__main__':
         #start to save best performance model after learning rate decay to 0.01
         if epoch > settings.MILESTONES[1] and best_acc < acc:
             weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='best')
+            best_acc = acc
             print('saving weights file to {}'.format(weights_path))
-            torch.save(net.state_dict(), weights_path)
+            torch.save({
+                'epoch': epoch,
+                'arch': args.net,
+                'state_dict': net.state_dict(),
+                'best_acc': best_acc,
+                'optimizer': optimizer.state_dict(),
+                'scheduler': train_scheduler.state_dict()
+                }, weights_path)
             best_acc = acc
             continue
 
-        if not epoch % settings.SAVE_EPOCH:
-            weights_path = checkpoint_path.format(net=args.net, epoch=epoch, type='regular')
-            print('saving weights file to {}'.format(weights_path))
-            torch.save(net.state_dict(), weights_path)
 
     writer.close()
