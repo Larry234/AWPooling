@@ -100,7 +100,7 @@ def eval_training(epoch=0, tb=True):
     print('Evaluating Network.....')
     print('Test set: Epoch: {}, Average loss: {:.4f}, Accuracy: {:.4f}, Time consumed:{:.2f}s'.format(
         epoch,
-        test_loss / len(cifar100_test_loader.dataset),
+        test_loss / len(cifar100_test_loader),
         correct.float() / len(cifar100_test_loader.dataset),
         finish - start
     ))
