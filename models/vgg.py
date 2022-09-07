@@ -15,14 +15,14 @@ from .awpooling import AWPool2d
 
 
 cfg = {
-    'A' : [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'], # 0.6814
-    'AW': [64,     'AW', 128,     'AW', 256, 256,          'AW', 512, 512,          'AW', 512, 512,         'AW'], # 0.6748
-    'B' : [64, 64, 'M', 128, 128, 'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'], # 0.7083
-    'BW': [64, 64, 'AW', 128, 128, 'AW', 256, 256,         'AW', 512, 512,          'AW', 512, 512,          'AW'],
-    'D' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256,      'M', 512, 512, 512,      'M', 512, 512, 512,      'M'],
-    'DW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256,      'AW', 512, 512, 512,      'AW', 512, 512, 512,  'AW'],
-    'E' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
-    'EW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256, 256, 'AW', 512, 512, 512, 512, 'AW', 512, 512, 512, 512, 'AW']
+    'A' : [64,     'M', 128,      'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'], # 0.5164
+    'AW': [64,     'AW', 128,     'AW', 256, 256,          'AW', 512, 512,          'AW', 512, 512,         'AW'], # 0.512
+    'B' : [64, 64, 'M', 128, 128, 'M', 256, 256,           'M', 512, 512,           'M', 512, 512,           'M'], # 0.5334
+    'BW': [64, 64, 'AW', 128, 128, 'AW', 256, 256,         'AW', 512, 512,          'AW', 512, 512,          'AW'],# 0.5292
+    'D' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256,      'M', 512, 512, 512,      'M', 512, 512, 512,      'M'], # 0.543
+    'DW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256,      'AW', 512, 512, 512,      'AW', 512, 512, 512,  'AW'],# 0.5378
+    'E' : [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'], # 0.532
+    'EW': [64, 64, 'AW', 128, 128, 'AW', 256, 256, 256, 256, 'AW', 512, 512, 512, 512, 'AW', 512, 512, 512, 512, 'AW'] # 0.5372
 }
 
 model_urls = {
@@ -41,7 +41,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_class=100, init_weights=True):
         super().__init__()
         self.features = features
-        # self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512 * 1 * 1, 4096),
             nn.ReLU(inplace=True),
@@ -56,9 +56,9 @@ class VGG(nn.Module):
 
     def forward(self, x):
         output = self.features(x)
-        # output = self.avgpool(output)
-        # output = torch.flatten(output, start_dim=1)
-        output = output.view(x.size(0), -1)
+        output = self.avgpool(output)
+        output = torch.flatten(output, start_dim=1)
+#         output = output.view(x.size(0), -1)
         output = self.classifier(output)
 
         return output
@@ -87,7 +87,7 @@ def make_layers(cfg, batch_norm=False):
             continue
         elif l == 'AW':
             layers += [AWPool2d(kernel_size=2, stride=2, temperature=t)]
-            if t > 1: t = t * 10
+            if t < 1: t = t * 10
             else: t = t * 5
             continue
 
