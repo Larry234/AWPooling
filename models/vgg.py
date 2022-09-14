@@ -41,7 +41,7 @@ class VGG(nn.Module):
     def __init__(self, features, num_class=100, init_weights=True):
         super().__init__()
         self.features = features
-        # self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512 * 1 * 1, 4096),
             nn.ReLU(inplace=True),
@@ -87,7 +87,7 @@ def make_layers(cfg, batch_norm=False):
             continue
         elif l == 'AW':
             layers += [AWPool2d(kernel_size=2, stride=2, temperature=t)]
-            if t > 1: t = t * 10
+            if t < 1: t = t * 10
             else: t = t * 5
             continue
 

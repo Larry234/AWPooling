@@ -44,6 +44,18 @@ def get_network(net, num_class=100, device=None):
     elif net == 'vgg19aw':
         from models.vgg import vgg19_AW
         model = vgg19_AW(num_class=num_class)
+    elif net == 'vgg11awt':
+        from models.vggaw import VGG11
+        model = VGG11(num_class=num_class)
+    elif net == 'vgg13awt':
+        from models.vggaw import VGG13
+        model = VGG13(num_class=num_class)
+    elif net == 'vgg16awt':
+        from models.vggaw import VGG16
+        model = VGG16(num_class=num_class)
+    elif net == 'vgg19awt':
+        from models.vggaw import VGG19
+        model = VGG19(num_class=num_class)
     elif net == 'densenet121':
         from models.densenet import densenet121
         model = densenet121()
