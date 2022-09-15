@@ -102,7 +102,7 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
-    
+        
     # setup tensorboard
     if args.tb:
         if not os.path.exists(settings.LOG_DIR):
@@ -155,6 +155,18 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
+    plot_t = False
+    
+    if 'awt' in args.arch:
+        param_list = []
+        plot_t = True
+        for n, p in model.named_parameters():
+            if 'aw' in n:
+                param_list += {'params': p, 'lr': args.lr/10}
+            else:
+                param_list += {'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}
+        optimzier = torch.optim.SGD(param_list)
+        
     
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
@@ -235,7 +247,7 @@ def main_worker(gpu, ngpus_per_node, args):
 #             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args)
+        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer)
         
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
@@ -263,7 +275,11 @@ def main_worker(gpu, ngpus_per_node, args):
         }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, criterion, optimizer, epoch, args, writer):
+    plot_t = False
+    if 'awt' in args.arch and args.tb:
+        plot_t = True
+    
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -281,7 +297,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-            
+        
         if torch.cuda.is_available():
             images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
@@ -300,6 +316,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
+        if plot_t:
+            writer.add_scalar('Temperature', {
+                't0': model.temperature[0],
+                't1': model.temperature[1],
+                't2': model.temperature[2],
+                't3': model.temperature[3],
+                't4': model.temperature[4],
+            }, i + epoch*len(train_loader))
 
         # measure elapsed time
         batch_time.update(time.time() - end)

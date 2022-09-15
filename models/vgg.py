@@ -87,8 +87,7 @@ def make_layers(cfg, batch_norm=False):
             continue
         elif l == 'AW':
             layers += [AWPool2d(kernel_size=2, stride=2, temperature=t)]
-            if t < 1: t = t * 10
-            else: t = t * 5
+            
             continue
 
         layers += [nn.Conv2d(input_channel, l, kernel_size=3, padding=1)]
