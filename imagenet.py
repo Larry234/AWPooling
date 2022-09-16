@@ -162,9 +162,9 @@ def main_worker(gpu, ngpus_per_node, args):
         plot_t = True
         for n, p in model.named_parameters():
             if 'aw' in n:
-                param_list += {'params': p, 'lr': args.lr/10}
+                param_list += [{'params': p, 'lr': args.lr/10}]
             else:
-                param_list += {'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}
+                param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
         optimzier = torch.optim.SGD(param_list)
         
     
@@ -247,7 +247,7 @@ def main_worker(gpu, ngpus_per_node, args):
 #             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer)
+        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer, plot_t)
         
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
@@ -275,7 +275,7 @@ def main_worker(gpu, ngpus_per_node, args):
         }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args, writer):
+def train(train_loader, model, criterion, optimizer, epoch, args, writer, plot_t):
     plot_t = False
     if 'awt' in args.arch and args.tb:
         plot_t = True
@@ -317,14 +317,16 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         loss.backward()
         optimizer.step()
         
+        n_iter = (epoch - 1) * len(train_loader) + i + 1
+        
         if plot_t:
-            writer.add_scalar('Temperature', {
-                't0': model.temperature[0],
-                't1': model.temperature[1],
-                't2': model.temperature[2],
-                't3': model.temperature[3],
-                't4': model.temperature[4],
-            }, i + epoch*len(train_loader))
+            writer.add_scalars('Temperature', {
+                't0': model.aw1.t,
+                't1': model.aw2.t,
+                't2': model.aw3.t,
+                't3': model.aw4.t,
+                't4': model.aw5.t,
+            }, n_iter)
 
         # measure elapsed time
         batch_time.update(time.time() - end)

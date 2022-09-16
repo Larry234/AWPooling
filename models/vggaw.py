@@ -7,20 +7,19 @@ from .awpooling import AWPool2d_
 class VGG11(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
         super(VGG11, self).__init__()
-        self.temperature = Variable(torch.Tensor([1., 1., 1., 1., 1.]), requires_grad=True)
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[0])
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[1])
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -30,7 +29,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256)
         )
-        self.aw3 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[2])
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -40,7 +39,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[3])
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -50,7 +49,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[4])
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -98,8 +97,7 @@ class VGG11(nn.Module):
 # ====================================== VGG13 ===================================================
 class VGG13(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG11, self).__init__()
-        self.temperature = Variable(torch.Tensor([1., 1., 1., 1., 1.]), requires_grad=True)
+        super(VGG13, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -108,7 +106,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[0])
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -118,7 +116,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[1])
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -128,7 +126,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256)
         )
-        self.aw3 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[2])
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -138,7 +136,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[3])
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -148,7 +146,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[4])
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -196,8 +194,7 @@ class VGG13(nn.Module):
 # ====================================== VGG16 ===================================================
 class VGG16(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG11, self).__init__()
-        self.temperature = Variable(torch.Tensor([1., 1., 1., 1., 1.]), requires_grad=True)
+        super(VGG16, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -206,7 +203,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[0])
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -216,7 +213,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[1])
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -229,7 +226,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256),
         )
-        self.aw3 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[2])
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -242,7 +239,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[3])
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -255,7 +252,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[4])
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -302,10 +299,9 @@ class VGG16(nn.Module):
 
 
 # ====================================== VGG19 ===================================================
-class VGG13(nn.Module):
+class VGG19(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG11, self).__init__()
-        self.temperature = Variable(torch.Tensor([1., 1., 1., 1., 1.]), requires_grad=True)
+        super(VGG19, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -314,7 +310,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[0])
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -324,7 +320,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[1])
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -340,7 +336,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256),
         )
-        self.aw3 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[2])
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -356,7 +352,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[3])
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -372,7 +368,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=2, stride=2, temperature=self.temperature[4])
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
