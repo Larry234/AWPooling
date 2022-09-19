@@ -50,6 +50,8 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--lrt', '--learning-rate-t', default=1, type=float,
+                    metavar='LRT', help='initial learning rate for temperature training', dest='lrt')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -155,17 +157,20 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
+    optimizer_t = None
     plot_t = False
     
     if 'awt' in args.arch:
         param_list = []
+        param_list_t = []
         plot_t = True
         for n, p in model.named_parameters():
             if 'aw' in n:
-                param_list += [{'params': p, 'lr': args.lr/10}]
+                param_list_t += [{'params': p, 'lr': args.lrt}]
             else:
                 param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
-        optimzier = torch.optim.SGD(param_list)
+        optimizer = torch.optim.SGD(param_list)
+        optimizer_t = torch.optim.SGD(param_list_t)
         
     
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
@@ -247,7 +252,7 @@ def main_worker(gpu, ngpus_per_node, args):
 #             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer, plot_t)
+        tloss, tacc1 = train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t)
         
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
@@ -264,21 +269,29 @@ def main_worker(gpu, ngpus_per_node, args):
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
+        if plot_t:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_acc1': best_acc1,
+                'temperature': [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t],
+                'optimizer' : optimizer.state_dict(),
+                'optimizer_t': optimizer_t.state_dict(),
+                'scheduler' : scheduler.state_dict()
+            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
+        else:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_acc1': best_acc1,
+                'optimizer' : optimizer.state_dict(),
+                'scheduler' : scheduler.state_dict()
+            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
 
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'arch': args.arch,
-            'state_dict': model.state_dict(),
-            'best_acc1': best_acc1,
-            'optimizer' : optimizer.state_dict(),
-            'scheduler' : scheduler.state_dict()
-        }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
 
-
-def train(train_loader, model, criterion, optimizer, epoch, args, writer, plot_t):
-    plot_t = False
-    if 'awt' in args.arch and args.tb:
-        plot_t = True
+def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t):
     
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -320,6 +333,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer, plot_t
         n_iter = (epoch - 1) * len(train_loader) + i + 1
         
         if plot_t:
+            optimizer_t.step()
+            optimizer_t.zero_grad()
             writer.add_scalars('Temperature', {
                 't0': model.aw1.t,
                 't1': model.aw2.t,
