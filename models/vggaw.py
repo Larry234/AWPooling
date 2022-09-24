@@ -12,14 +12,14 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -29,7 +29,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256)
         )
-        self.aw3 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -39,7 +39,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -49,7 +49,7 @@ class VGG11(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -106,7 +106,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -116,7 +116,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -126,7 +126,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256)
         )
-        self.aw3 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -136,7 +136,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -146,7 +146,7 @@ class VGG13(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -203,7 +203,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -213,7 +213,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -226,7 +226,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256),
         )
-        self.aw3 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -239,7 +239,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -252,7 +252,7 @@ class VGG16(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
@@ -310,7 +310,7 @@ class VGG19(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
         )
-        self.aw1 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw1 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
@@ -320,7 +320,7 @@ class VGG19(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(128),
         )
-        self.aw2 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw2 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv3 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
@@ -336,7 +336,7 @@ class VGG19(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(256),
         )
-        self.aw3 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw3 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, padding=1),
@@ -352,7 +352,7 @@ class VGG19(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw4 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw4 = AWPool2d_(kernel_size=2, stride=2)
         
         self.conv5 = nn.Sequential(
             nn.Conv2d(512, 512, kernel_size=3, padding=1),
@@ -368,7 +368,7 @@ class VGG19(nn.Module):
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(512),
         )
-        self.aw5 = AWPool2d_(kernel_size=3, stride=2, padding=1)
+        self.aw5 = AWPool2d_(kernel_size=2, stride=2)
         self.globalavg = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
             nn.Linear(512, 4096),
