@@ -41,8 +41,6 @@ parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('--t_iter', default=5, type=int, metavar='N', 
-                    help='temperature update frequency')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
@@ -50,11 +48,8 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--img-size', default=64, type=int, help='image size for training')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--lrt', '--learning-rate-t', default=1, type=float,
-                    metavar='LRT', help='initial learning rate for temperature training', dest='lrt')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -70,25 +65,11 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
-parser.add_argument('--world-size', default=-1, type=int,
-                    help='number of nodes for distributed training')
-parser.add_argument('--rank', default=-1, type=int,
-                    help='node rank for distributed training')
-parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
-                    help='url used to set up distributed training')
-parser.add_argument('--dist-backend', default='nccl', type=str,
-                    help='distributed backend')
 parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
-parser.add_argument('--multiprocessing-distributed', action='store_true',
-                    help='Use multi-processing distributed training to launch '
-                         'N processes per node, which has N GPUs. This is the '
-                         'fastest way to use PyTorch for either single node or '
-                         'multi node data parallel training')
 parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
-parser.add_argument('--logdir', default='runs',type=str, help="tensorboard logging directory")
+parser.add_argument('--tb', action='store_true', help="use tensorboard")
 parser.add_argument('--url', type=str, help='pretrained model url')
-parser.add_argument('--enable', type=int, help='enable temperature training layer index')
 
 best_acc1 = 0
 
@@ -100,7 +81,6 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
         cudnn.deterministic = True
-        cudnn.bechmark = False
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
                       'which can slow down your training considerably! '
@@ -111,49 +91,39 @@ def main():
         warnings.warn('You have chosen a specific GPU. This will completely '
                       'disable data parallelism.')
 
-    if args.dist_url == "env://" and args.world_size == -1:
-        args.world_size = int(os.environ["WORLD_SIZE"])
 
-    args.distributed = args.world_size > 1 or args.multiprocessing_distributed
+#     args.distributed = args.multiprocessing_distributed
+
+    ngpus_per_node = torch.cuda.device_count()
     
-    if torch.cuda.is_available():
-        ngpus_per_node = torch.cuda.device_count()
-    
-    if args.multiprocessing_distributed:
-        # Since we have ngpus_per_node processes per node, the total world_size
-        # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
-        # Use torch.multiprocessing.spawn to launch distributed processes: the
-        # main_worker process function
-        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
-    else:
-        # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+    # Simply call main_worker function
+    main_worker(args.gpu, ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
-        
+    
     # setup tensorboard
+    if args.tb:
+        if not os.path.exists(settings.LOG_DIR):
+            os.mkdir(settings.LOG_DIR)
         
-    writer = SummaryWriter(log_dir=os.path.join(settings.LOG_DIR, args.arch, args.logdir))
+        writer = SummaryWriter(log_dir=os.path.join(settings.LOG_DIR, args.arch, settings.TIME_NOW))
     
     args.gpu = gpu
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
-    
-    if args.distributed:
-        if args.dist_url == "env://" and args.rank == -1:
-            args.rank = int(os.environ["RANK"])
-        if args.multiprocessing_distributed:
-            # For multiprocessing distributed training, rank needs to be the
-            # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
-        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                world_size=args.world_size, rank=args.rank)
 
-    
+#     if args.distributed:
+#         if args.dist_url == "env://" and args.rank == -1:
+#             args.rank = int(os.environ["RANK"])
+#         if args.multiprocessing_distributed:
+#             # For multiprocessing distributed training, rank needs to be the
+#             # global rank among all the processes
+#             args.rank = args.rank * ngpus_per_node + gpu
+#         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+#                                 world_size=args.world_size, rank=args.rank)
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
@@ -161,49 +131,8 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print("=> creating model '{}'".format(args.arch))
         model = get_network(args.arch, num_class=200)
-     
-    if not torch.cuda.is_available() and not torch.backends.mps.is_available():
-        print('using CPU, this will be slow')
-    elif args.distributed:
-        # For multiprocessing distributed, DistributedDataParallel constructor
-        # should always set the single device scope, otherwise,
-        # DistributedDataParallel will use all available devices.
-        if torch.cuda.is_available():
-            if args.gpu is not None:
-                torch.cuda.set_device(args.gpu)
-                model.cuda(args.gpu)
-                # When using a single GPU per process and per
-                # DistributedDataParallel, we need to divide the batch size
-                # ourselves based on the total number of GPUs of the current node.
-                args.batch_size = int(args.batch_size / ngpus_per_node)
-                args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
-                model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
-            else:
-                model.cuda()
-                # DistributedDataParallel will divide and allocate batch_size to all
-                # available GPUs if device_ids are not set
-                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
-    elif args.gpu is not None and torch.cuda.is_available():
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-        model = model.to(device)
-    else:
-        # DataParallel will divide and allocate batch_size to all available GPUs
-        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-            model.features = torch.nn.DataParallel(model.features)
-            model.cuda()
-        else:
-            model = torch.nn.DataParallel(model).cuda()
-            
-    if torch.cuda.is_available():
-        if args.gpu:
-            device = torch.device('cuda:{}'.format(args.gpu))
-        else:
-            device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
+    model = model.cuda(args.gpu)
+    # print(model)
         
     if args.url != None:
         print(f"loading pretrained weight form {args.url}")
@@ -213,6 +142,12 @@ def main_worker(gpu, ngpus_per_node, args):
         model_dict.update(state_dict)
         model.load_state_dict(model_dict)
 
+        # freeze backbone weight to fine tuning
+        for l, p in model.named_modules():
+            if "features" in l:
+                p.required_grad = False
+    
+    # model = torch.nn.DataParallel(model).cuda()
 
     # define loss function (criterion), optimizer, and learning rate scheduler
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -221,28 +156,8 @@ def main_worker(gpu, ngpus_per_node, args):
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
     
-    
-    # Sets the optimizer and lr scheduler for temperature learning
-    optimizer_t = None
-    scheduler_t = None
-    plot_t = False
-    
-    if 'awt' in args.arch:
-        param_list = []
-        param_list_t = []
-        plot_t = True
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                param_list_t += [{'params': p, 'lr': args.lrt}]
-            else:
-                param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
-        optimizer = torch.optim.SGD(param_list)
-        optimizer_t = torch.optim.Adam(param_list_t)
-        scheduler_t = StepLR(optimizer_t, step_size=30, gamma=0.1)
-    
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
-    
     
     # optionally resume from a checkpoint
     if args.resume:
@@ -267,8 +182,10 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
+    cudnn.benchmark = True
 
     # Data loading code
+    print("loading data...")
     if args.dummy:
         print("=> Dummy data is used!")
         train_dataset = datasets.FakeData(1281167, (3, 224, 224), 1000, transforms.ToTensor())
@@ -282,7 +199,6 @@ def main_worker(gpu, ngpus_per_node, args):
         train_dataset = datasets.ImageFolder(
             traindir,
             transforms.Compose([
-                transforms.Resize((args.img_size, args.img_size)),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 normalize,
@@ -291,18 +207,16 @@ def main_worker(gpu, ngpus_per_node, args):
         val_dataset = datasets.ImageFolder(
             valdir,
             transforms.Compose([
-                transforms.Resize((args.img_size, args.img_size)),
                 transforms.ToTensor(),
                 normalize,
             ]))
 
-    if args.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-            val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=True)
-    else:
-        train_sampler = None
-        val_sampler = None
-
+#     if args.distributed:
+#         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+#         val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, shuffle=False, drop_last=True)
+    train_sampler = None
+    val_sampler = None
+    
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
@@ -315,68 +229,41 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
     
-#     model.module.disable_t() # disable all temperature gradient
-#     if args.enable != None:
-#         model.module.enable_t(index=args.enable)
-    
     print("start training...")
     for epoch in range(args.start_epoch, args.epochs):
-        
-        if args.distributed:
-            train_sampler.set_epoch(epoch)       
+#         if args.distributed:
+#             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t)
+        tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args)
         
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
         
         scheduler.step()
         
-        if plot_t:
-            scheduler_t.step()
-        
-        writer.add_scalar('Train/loss', tloss, epoch+1)
-        writer.add_scalar('Train/acc1', tacc1, epoch+1)
-        writer.add_scalar('Val/loss', loss, epoch+1)
-        writer.add_scalar('Val/acc1', acc1, epoch+1)
-        writer.add_scalar('Val/acc5', acc5, epoch+1)
+        if args.tb:
+            writer.add_scalar('Train/loss', tloss, epoch+1)
+            writer.add_scalar('Train/acc1', tacc1, epoch+1)
+            writer.add_scalar('Val/loss', loss, epoch+1)
+            writer.add_scalar('Val/acc1', acc1, epoch+1)
+            writer.add_scalar('Val/acc5', acc5, epoch+1)
         
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
-        
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
-            if plot_t:
-                if args.distributed:
-                    temperature = [model.module.aw1.t, model.module.aw2.t, model.module.aw3.t, model.module.aw4.t, model.module.aw5.t]
-                else:
-                    temperature = [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t]
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'best_acc1': best_acc1,
-                    'temperature': temperature,
-                    'optimizer' : optimizer.state_dict(),
-                    'optimizer_t': optimizer_t.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
-            
-            else:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'best_acc1': best_acc1,
-                    'optimizer' : optimizer.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
+
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'arch': args.arch,
+            'state_dict': model.state_dict(),
+            'best_acc1': best_acc1,
+            'optimizer' : optimizer.state_dict(),
+            'scheduler' : scheduler.state_dict()
+        }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
 
 
-def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t):
-    
+def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -394,20 +281,10 @@ def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, w
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-        
-#         # update temperature every t_iter and freeze other weights
-#         if args.t_iter != 0:
-#             if i % args.t_iter == 0:
-#                 set_mode(model, mode='temperature')
-#             else:
-#                 set_mode(model, mode='normal')
-        
+            
         if torch.cuda.is_available():
             images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
-        elif torch.backends.mps.is_available():
-            images = images.to('mps')
-            target = target.to('mps')
 
         # compute output
         output = model(images)
@@ -423,28 +300,6 @@ def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, w
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        n_iter = (epoch - 1) * len(train_loader) + i + 1
-        
-        if plot_t:
-            optimizer_t.step()
-            optimizer_t.zero_grad()
-            if args.distributed:
-                writer.add_scalars('Temperature', {
-                't0': model.module.aw1.t,
-                't1': model.module.aw2.t,
-                't2': model.module.aw3.t,
-                't3': model.module.aw4.t,
-                't4': model.module.aw5.t,
-            }, n_iter)
-            else:
-                writer.add_scalars('Temperature', {
-                    't0': model.aw1.t,
-                    't1': model.aw2.t,
-                    't2': model.aw3.t,
-                    't3': model.aw4.t,
-                    't4': model.aw5.t,
-                }, n_iter)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -464,12 +319,8 @@ def validate(val_loader, model, criterion, args):
                 i = base_progress + i
 
                 if torch.cuda.is_available():
-                    target = target.cuda(args.gpu, non_blocking=True)
                     images = images.cuda(args.gpu, non_blocking=True)
-                elif torch.backends.mps.is_available():
-                    images = images.to('mps')
-                    target = target.to('mps')
-
+                    target = target.cuda(args.gpu, non_blocking=True)
 
                 # compute output
                 output = model(images)
@@ -501,36 +352,11 @@ def validate(val_loader, model, criterion, args):
     model.eval()
 
     run_validate(val_loader)
-    if args.distributed:
-        top1.all_reduce()
-        top5.all_reduce()
-
-    if args.distributed and (len(val_loader.sampler) * args.world_size < len(val_loader.dataset)):
-        aux_val_dataset = Subset(val_loader.dataset,
-                                 range(len(val_loader.sampler) * args.world_size, len(val_loader.dataset)))
-        aux_val_loader = torch.utils.data.DataLoader(
-            aux_val_dataset, batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
-        run_validate(aux_val_loader, len(val_loader))
     progress.display_summary()
 
     return losses.avg, top1.avg, top5.avg
 
 
-def set_mode(model, mode='normal'):
-    if mode == 'normal':
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                p.requires_grad = False
-            else:
-                p.requires_grad = True
-    elif mode == 'temperature':
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                p.requires_grad = True
-            else:
-                p.requires_grad = False
-                
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', root=None):
     torch.save(state, filename)
     if is_best:
@@ -563,7 +389,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
     def all_reduce(self):
-        total = torch.FloatTensor([self.sum, self.count]).cuda()
+        total = torch.FloatTensor([self.sum, self.count])
         dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
         self.sum, self.count = total.tolist()
         self.avg = self.sum / self.count

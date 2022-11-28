@@ -47,6 +47,9 @@ class AWPool2d(nn.Module):
         
         return torch.sum((w * x).view(B, C, o_h, o_w, -1), dim=-1)
     
+    def __str__(self):
+        return f"AWPool2d(kernel_size={self.k}, stride={self.stride}, padding={self.padding}, temperature={self.t}"
+    
 class AWPool2d_(nn.Module):
     def __init__(self, kernel_size=3, stride=1, padding=0, same=False):
         super(AWPool2d_, self).__init__()

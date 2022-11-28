@@ -80,7 +80,7 @@ def make_layers(cfg, batch_norm=False):
     layers = []
 
     input_channel = 3
-    t = 1e-2
+    t = 1
     for l in cfg:
         if l == 'M':
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
