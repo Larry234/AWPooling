@@ -1,0 +1,83 @@
+Tiny-imagenet training result
+1.- Baseline
+    vgg11: 0.5164
+    vgg13: 0.5334
+    vgg16: 0.543
+    vgg19: 0.532
+    
+- Replace maxpooling with AWPooling(t = 1 for all layers)
+    vgg11: 0.4984
+
+2.- temperature - 0.01, 0.05, 0.25, 1.25, 12.5
+    vgg11: 0.512
+    vgg13: 0.5292
+    vgg16: 0.5378
+    vgg19: 0.5372
+      
+3.- temperature - 0.01, 0.1, 1, 5, 25 best
+    vgg11: 0.5134
+    vgg13: 0.5508
+    vgg16: 0.5506
+    vgg19: 0.5408
+    
+4.- temperature with initial value 1 lr: 0.01, 0.001, 0.0001
+    vgg11: 0.5082
+    vgg13: 0.5266
+    vgg16: 0.5208
+    vgg19: 0.533
+    
+10.- temperature with initial value 1 lr: 1, 0.1, 0.01
+    vgg11: 0.5072
+    vgg13: 0.5176
+    vgg16: 0.531
+    vgg19: 0.5322
+    
+5.- temperature with initial value 1 lr: 1
+    vgg11: 0.5184
+    vgg13: 0.5322
+    vgg16: 0.534
+    vgg19: 0.5266
+    
+6.- temperature with initial value 1 lr: 0.1
+    vgg11: 0.5008
+    vgg13: 0.5248
+    vgg16: 0.528
+    vgg19: 0.5244
+    
+7.- temperature with initial value 1 lr: 1 overlapped pooling
+    vgg11: 0.5128
+    vgg13: 0.5394
+    vgg16: 0.5232
+    vgg19: 0.5328
+    
+8.- temperature with initial value 1 lr: 0.1 overlapped pooling
+    vgg11: 0.5136
+    vgg13: 0.536
+    vgg16: 0.5344
+    vgg19: 0.5346
+
+9.- temperature with initial value 1 lr: 1, 0.1, 0.01 overlapped pooling 
+    vgg11: 0.5086
+    vgg13: 0.5280
+    vgg16: 0.5382
+    vgg19: 0.5378
+    
+10.- temperature with initial value 1 lr: 1, 0.1, 0.01 train temperature every 5 iterations
+    vgg11: 0.5066
+    vgg13: 0.519
+    vgg16: 0.535
+    vgg19: 0.5298
+    
+11.- temperature with initial value 1 lr: 1, 0.1, 0.01 train temperature every 10 iterations
+    vgg11: 0.5022
+    vgg13: 0.521
+    vgg16: 0.529
+    vgg19: 0.531
+    
+
+# Experiment on VGG11
+- lrt = 0.1 decay with Adam optimizer: 0.5178
+
+- 
+
+      
