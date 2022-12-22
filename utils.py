@@ -36,14 +36,14 @@ def get_network(net, num_class=100, device=None):
         from models.vggaw import VGG11AW
         model = VGG11AW(num_class=num_class)
     elif net == 'vgg13aw':
-        from models.vgg import vgg13_AW
-        model = vgg13_AW(num_class=num_class)
+        from models.vggaw import VGG13AW
+        model = VGG13AW(num_class=num_class)
     elif net == 'vgg16aw':
-        from models.vgg import vgg16_AW
-        model = vgg16_AW(num_class=num_class)
+        from models.vggaw import VGG16AW
+        model = VGG16AW(num_class=num_class)
     elif net == 'vgg19aw':
-        from models.vgg import vgg19_AW
-        model = vgg19_AW(num_class=num_class)
+        from models.vggaw import VGG19AW
+        model = VGG19AW(num_class=num_class)
     elif net == 'vgg11awt':
         from models.vggaw import VGG11
         model = VGG11(num_class=num_class)

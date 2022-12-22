@@ -3,7 +3,8 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from models.awpooling import AWPool2d
-from models.vggaw import VGG11AW
+from models.vggaw import VGG11AW, VGG16AW
+from utils import get_network
 
 import ray
 from ray import tune
@@ -16,7 +17,27 @@ from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.hyperopt import HyperOptSearch
 
 import os
-import time
+import argparse
+
+
+class Trainable(tune.Trainable):
+    def setup(self, config: dict):
+        self.t = config['temperature']
+        self.obj = config['obj']
+
+    def step(self):
+        pass
+
+    def get_loader(self):
+        pass
+
+    def save_checkpoint(self, tmp_checkpoint_dir):
+        pass
+
+    def load_checkpoint(self, tmp_checkpoint_dir):
+        pass
+
+
 
 def get_loader(root='/root/notebooks/nfs/work/dataset/tiny-imagenet-200'):
     
@@ -50,15 +71,15 @@ def train_model(config):
     
     assert torch.cuda.is_available()
     
-    save_root = '/root/notebooks/nfs/work/larry.lai/AWPooling/baysopt'
+    save_root = '/home/larry/AWPooling/baysopt'
     os.makedirs(save_root, exist_ok=True)
     
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-    train_loader, val_loader = get_loader()
+    train_loader, val_loader = get_loader('/home/larry/Datasets/tiny-imagenet-200')
     
-    model = VGG11AW(num_class=200)
+    model = get_network(net=config['arch'], num_class=200)
     model.set_temperature(config)
-    model.to(device) 
+    model.to(device)
     
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
@@ -114,30 +135,42 @@ def train_model(config):
     
     
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--arch', help='model architecture', type=str, default='vgg16aw')
+    parser.add_argument('--goal', help='objective function to optimize', type=str, default='accuracy', choices=['loss', 'accuracy'])
+    parser.add_argument('--kind', help='acquisition function kind', type=str, default='ucb', choices=['ucb', 'ei', 'pi'])
+    parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
+    parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
+    parser.add_argument('--iter', help='iterations of bayesian optimization', type=int, default=30)
+    parser.add_argument('--path', help='experiment path', type=str, default='exp')
+
+    args = parser.parse_args()
+
     search_space = {
-        "t0": tune.uniform(1e-5, 10),
-        "t1": tune.uniform(1e-5, 10),
-        "t2": tune.uniform(1e-5, 10),
-        "t3": tune.uniform(1e-5, 10),
-        "t4": tune.uniform(1e-5, 10),
+        "arch": args.arch,
+        "t0": tune.uniform(1e-5, 0.5),
+        "t1": tune.uniform(1e-5, 1),
+        "t2": tune.uniform(1, 5),
+        "t3": tune.uniform(2, 10),
+        "t4": tune.uniform(2, 10),
     }
 
-    algo = BayesOptSearch(metric='accuracy', mode='max')
+    algo = BayesOptSearch(metric='loss', mode='min', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
     tune_config = tune.TuneConfig(
-        num_samples=30,
+        num_samples=args.iter,
         search_alg=algo
     )
 
     checkpoint_config = CheckpointConfig(
-        num_to_keep=3,
+        num_to_keep=1,
         checkpoint_score_attribute='accuracy',
         checkpoint_score_order='max'
     )
 
     tuner = tune.Tuner(
-        tune.with_resources(train_model, {'gpu': 2, 'cpu': 4}),
+        tune.with_resources(train_model, {'gpu': 1, 'cpu': 4}),
         tune_config=tune_config,
-        run_config=RunConfig(local_dir='./test_run', name='bays_vgg11aw_epoch90', checkpoint_config=checkpoint_config),
+        run_config=RunConfig(local_dir='./test_run', name=args.path, checkpoint_config=checkpoint_config),
         param_space=search_space,
     )
     results = tuner.fit()
