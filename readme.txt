@@ -1,0 +1,2 @@
+Run training with Multi-processing Distributed Data Parallel
+python main.py --data [dataset floder] -a vgg16 --dist-url 'tcp://127.0.0.1:FREEPORT' --dist-backend 'nccl' --multiprocessing-distributed --world-size 1 --rank 0

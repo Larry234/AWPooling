@@ -5,6 +5,7 @@ import shutil
 import time
 import warnings
 from enum import Enum
+from collections import OrderedDict
 
 import torch
 import torch.nn as nn
@@ -39,10 +40,8 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=30, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('--t_iter', default=5, type=int, metavar='N', 
-                    help='temperature update frequency')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('-b', '--batch-size', default=256, type=int,
@@ -53,7 +52,7 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
 parser.add_argument('--img-size', default=64, type=int, help='image size for training')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--lrt', '--learning-rate-t', default=1, type=float,
+parser.add_argument('--lrt', '--learning-rate-t', default=0.01, type=float,
                     metavar='LRT', help='initial learning rate for temperature training', dest='lrt')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -62,7 +61,7 @@ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=1, type=int,
                     metavar='N', help='print frequency (default: 1)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
+parser.add_argument('--checkpoint', default='', type=str, metavar='PATH', required=True,
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
@@ -88,7 +87,6 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
 parser.add_argument('--logdir', default='runs',type=str, help="tensorboard logging directory")
 parser.add_argument('--url', type=str, help='pretrained model url')
-parser.add_argument('--enable', type=int, help='enable temperature training layer index')
 
 best_acc1 = 0
 
@@ -136,7 +134,7 @@ def main_worker(gpu, ngpus_per_node, args):
         
     # setup tensorboard
         
-    writer = SummaryWriter(log_dir=os.path.join(settings.LOG_DIR, args.arch, args.logdir))
+    writer = SummaryWriter(log_dir=os.path.join(settings.LOG_T, args.arch, args.logdir))
     
     args.gpu = gpu
 
@@ -202,70 +200,53 @@ def main_worker(gpu, ngpus_per_node, args):
             device = torch.device('cuda:{}'.format(args.gpu))
         else:
             device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
         
-    if args.url != None:
-        print(f"loading pretrained weight form {args.url}")
-        state_dict = load_state_dict_from_url(args.url, progress=True)
-        model_dict = model.state_dict()
-        state_dict = {k: v for k, v in state_dict.items() if k in model_dict and "classifier.0" not in k}
-        model_dict.update(state_dict)
-        model.load_state_dict(model_dict)
+#     if args.url != None:
+#         print(f"loading pretrained weight form {args.url}")
+#         state_dict = load_state_dict_from_url(args.url, progress=True)
+#         model_dict = model.state_dict()
+#         state_dict = {k: v for k, v in state_dict.items() if k in model_dict and "classifier.0" not in k}
+#         model_dict.update(state_dict)
+#         model.load_state_dict(model_dict)
 
 
     # define loss function (criterion), optimizer, and learning rate scheduler
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
-    optimizer = torch.optim.SGD(model.parameters(), args.lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+    checkpoint = torch.load(args.checkpoint)
+    state_dict = checkpoint['state_dict']
+    model_dict = model.state_dict()
     
+    param_value = list(state_dict.values())
+    index = 0
     
-    # Sets the optimizer and lr scheduler for temperature learning
-    optimizer_t = None
-    plot_t = False
+    for k in model_dict.keys():
+        if 'aw' in k or 'classifier' in k:
+            continue
+        model_dict[k] = param_value[index]
+        index += 1
+         
+    model.load_state_dict(model_dict)
     
-    if 'awt' in args.arch:
-        param_list = []
-        param_list_t = []
-        plot_t = True
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                param_list_t += [{'params': p, 'lr': args.lrt}]
-            else:
-                param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
-        optimizer = torch.optim.SGD(param_list)
-        optimizer_t = torch.optim.Adam(param_list_t)
+    temperature_param = []
+    classifier_param = []
+    for n, p in model.named_parameters():
+        if 'aw' in n:
+            temperature_param.append({'params': p, 'lr': args.lrt})
+        elif 'classifier' in n:
+            classifier_param.append({'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay})
     
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    optimizer = torch.optim.SGD(classifier_param)
+    optimizer_t = torch.optim.SGD(temperature_param)
+    optimizers = (optimizer, optimizer_t)
+    
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     
     
-    # optionally resume from a checkpoint
-    if args.resume:
-        if os.path.isfile(args.resume):
-            print("=> loading checkpoint '{}'".format(args.resume))
-            if args.gpu is None:
-                checkpoint = torch.load(args.resume)
-            else:
-                # Map model to be loaded to specified single gpu.
-                loc = 'cuda:{}'.format(args.gpu)
-                checkpoint = torch.load(args.resume, map_location=loc)
-            args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
-            if args.gpu is not None:
-                # best_acc1 may be from a checkpoint from a different GPU
-                best_acc1 = best_acc1.to(args.gpu)
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            scheduler.load_state_dict(checkpoint['scheduler'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-        else:
-            print("=> no checkpoint found at '{}'".format(args.resume))
-
-
+#     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+#     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    
+    
     # Data loading code
     if args.dummy:
         print("=> Dummy data is used!")
@@ -324,7 +305,7 @@ def main_worker(gpu, ngpus_per_node, args):
             train_sampler.set_epoch(epoch)       
 
         # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t)
+        tloss, tacc1 = train(train_loader, model, criterion, optimizers, epoch, args, writer)
         
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
@@ -343,34 +324,28 @@ def main_worker(gpu, ngpus_per_node, args):
         
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            if plot_t:
-                if args.distributed:
-                    temperature = [model.module.aw1.t, model.module.aw2.t, model.module.aw3.t, model.module.aw4.t, model.module.aw5.t]
-                else:
-                    temperature = [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t]
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'best_acc1': best_acc1,
-                    'temperature': temperature,
-                    'optimizer' : optimizer.state_dict(),
-                    'optimizer_t': optimizer_t.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
-            
+            if args.distributed:
+                temperature = [model.module.aw1.t, model.module.aw2.t, model.module.aw3.t, model.module.aw4.t, model.module.aw5.t]
             else:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'arch': args.arch,
-                    'state_dict': model.state_dict(),
-                    'best_acc1': best_acc1,
-                    'optimizer' : optimizer.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
+                temperature = [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t]
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_acc1': best_acc1,
+                'temperature': temperature,
+            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
+
+        else:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'arch': args.arch,
+                'state_dict': model.state_dict(),
+                'best_acc1': best_acc1,
+            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
 
 
-def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t):
+def train(train_loader, model, criterion, optimizers, epoch, args, writer):
     
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -400,10 +375,7 @@ def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, w
         if torch.cuda.is_available():
             images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
-#         elif torch.backends.mps.is_available():
-#             images = images.to('mps')
-#             target = target.to('mps')
-
+        
         # compute output
         output = model(images)
         loss = criterion(output, target)
@@ -415,31 +387,28 @@ def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, w
         top5.update(acc5[0], images.size(0))
 
         # compute gradient and do SGD step
-        optimizer.zero_grad()
+        for opt in optimizers: opt.zero_grad()
         loss.backward()
-        optimizer.step()
+        for opt in optimizers: opt.step()
         
         n_iter = (epoch - 1) * len(train_loader) + i + 1
-        
-        if plot_t:
-            optimizer_t.step()
-            optimizer_t.zero_grad()
-            if args.distributed:
-                writer.add_scalars('Temperature', {
-                't0': model.module.aw1.t,
-                't1': model.module.aw2.t,
-                't2': model.module.aw3.t,
-                't3': model.module.aw4.t,
-                't4': model.module.aw5.t,
+            
+        if args.distributed:
+            writer.add_scalars('Temperature', {
+            't0': model.module.aw1.t,
+            't1': model.module.aw2.t,
+            't2': model.module.aw3.t,
+            't3': model.module.aw4.t,
+            't4': model.module.aw5.t,
+        }, n_iter)
+        else:
+            writer.add_scalars('Temperature', {
+                't0': model.aw1.t,
+                't1': model.aw2.t,
+                't2': model.aw3.t,
+                't3': model.aw4.t,
+                't4': model.aw5.t,
             }, n_iter)
-            else:
-                writer.add_scalars('Temperature', {
-                    't0': model.aw1.t,
-                    't1': model.aw2.t,
-                    't2': model.aw3.t,
-                    't3': model.aw4.t,
-                    't4': model.aw5.t,
-                }, n_iter)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -461,9 +430,6 @@ def validate(val_loader, model, criterion, args):
                 if torch.cuda.is_available():
                     target = target.cuda(args.gpu, non_blocking=True)
                     images = images.cuda(args.gpu, non_blocking=True)
-#                 elif torch.backends.mps.is_available():
-#                     images = images.to('mps')
-#                     target = target.to('mps')
 
 
                 # compute output
