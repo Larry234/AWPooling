@@ -224,7 +224,6 @@ def main_worker(gpu, ngpus_per_node, args):
     
     # Sets the optimizer and lr scheduler for temperature learning
     optimizer_t = None
-    scheduler_t = None
     plot_t = False
     
     if 'awt' in args.arch:
@@ -238,7 +237,6 @@ def main_worker(gpu, ngpus_per_node, args):
                 param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
         optimizer = torch.optim.SGD(param_list)
         optimizer_t = torch.optim.Adam(param_list_t)
-        scheduler_t = StepLR(optimizer_t, step_size=30, gamma=0.1)
     
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
@@ -332,9 +330,6 @@ def main_worker(gpu, ngpus_per_node, args):
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
         
         scheduler.step()
-        
-        if plot_t:
-            scheduler_t.step()
         
         writer.add_scalar('Train/loss', tloss, epoch+1)
         writer.add_scalar('Train/acc1', tacc1, epoch+1)
