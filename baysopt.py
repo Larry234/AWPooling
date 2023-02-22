@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
+from torch.hub import load_state_dict_from_url
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from models.awpooling import AWPool2d
-from models.vggaw import VGG11AW, VGG16AW
 from utils import get_network
+from conf import settings
 
 import ray
 from ray import tune
@@ -18,26 +19,35 @@ from ray.tune.search.hyperopt import HyperOptSearch
 
 import os
 import argparse
+from glob import glob
+import pandas as pd
+
+model_urls = {
+    'vgg11': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth',
+    'vgg13': 'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth',
+    'vgg16': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth',
+    'vgg19': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth',
+}
 
 
-class Trainable(tune.Trainable):
-    def setup(self, config: dict):
-        self.t = config['temperature']
-        self.obj = config['obj']
+def load_pretrain(model, pretrain):
+    
+    model_dict = model.state_dict()
+    delete_keys = [k for k in model_dict.keys() if 'batch' in k]
+    # delete batch_tracked
+    for k in delete_keys:
+        del model_dict[k]
 
-    def step(self):
-        pass
+    param_value = list(pretrain.values())
+    index = 0
+    
+    for k in model_dict.keys():
+        if 'aw' in k or 'classifier' in k:
+            continue
+        model_dict[k] = param_value[index]
+        index += 1
 
-    def get_loader(self):
-        pass
-
-    def save_checkpoint(self, tmp_checkpoint_dir):
-        pass
-
-    def load_checkpoint(self, tmp_checkpoint_dir):
-        pass
-
-
+    model.load_state_dict(model_dict, strict=False)
 
 def get_loader(root='/root/notebooks/nfs/work/dataset/tiny-imagenet-200'):
     
@@ -67,12 +77,9 @@ def get_loader(root='/root/notebooks/nfs/work/dataset/tiny-imagenet-200'):
     
     return train_loader, val_loader
 
+
 def train_model(config): 
-    
     assert torch.cuda.is_available()
-    
-    save_root = '/home/larry/AWPooling/baysopt'
-    os.makedirs(save_root, exist_ok=True)
     
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
     train_loader, val_loader = get_loader('/home/larry/Datasets/tiny-imagenet-200')
@@ -128,49 +135,195 @@ def train_model(config):
         
         acc = acc.data.cpu().numpy()
         checkpoint = Checkpoint.from_directory(save_root)
-        session.report({"accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
+        session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
     
     print(f"trial {session.get_trial_name()}: best acc: {best_acc:.4f}")
     print("Finish training")
     
     
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--arch', help='model architecture', type=str, default='vgg16aw')
-    parser.add_argument('--goal', help='objective function to optimize', type=str, default='accuracy', choices=['loss', 'accuracy'])
-    parser.add_argument('--kind', help='acquisition function kind', type=str, default='ucb', choices=['ucb', 'ei', 'pi'])
-    parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
-    parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
-    parser.add_argument('--iter', help='iterations of bayesian optimization', type=int, default=30)
-    parser.add_argument('--path', help='experiment path', type=str, default='exp')
+def train_from_pretrain(config, data=None):
+    assert torch.cuda.is_available()
+    
+    save_root = '/home/larry/AWPooling/baysopt'
+    os.makedirs(save_root, exist_ok=True)
+    
+    device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
+    train_loader, val_loader = get_loader()
+    
+    save_root = os.path.join(settings.TUNE_T_PATH, args.arch)
+    os.makedirs(save_root, exist_ok=True)
+    
+    # load model and pretrain weight
+    model = get_network(config['arch'], config['num_class'])
+    load_pretrain(model, data)
+    model.set_temperature(config)
+    model.to(device) 
+    
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    criterion = nn.CrossEntropyLoss()
+    criterion.to(device)
+    best_acc = 0
+    running_loss = 0
+    
+    for epoch in range(config['epochs']):
+        model.train()
+        for data in train_loader:
+            image, label = data
+            image = image.to(device)
+            label = label.to(device)
+            
+            logits = model(image)
+            loss = criterion(logits, label)
+            running_loss += loss.item()
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-    args = parser.parse_args()
+        scheduler.step()
+        
+        running_loss = 0
+        corrects = 0
+        model.eval()
+        with torch.no_grad():
+            for data in val_loader:
+                image, label = data
+                image = image.to(device)
+                label = label.to(device)
+                
+                logits = model(image)
+                loss = criterion(logits, label)
+                running_loss += loss.item()
+                
+                _, pred = logits.max(dim=1)
+                corrects += pred.eq(label).sum()
+        
+        torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
+        checkpoint = Checkpoint.from_directory(save_root)
+        acc = corrects / len(val_loader.dataset)
+        
+        acc = acc.data.cpu().numpy()
+        session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
+        
+def compute_result(path):
+    results = glob(os.path.join(path, '**', 'progress.csv'))
+    
+    for result in results:
+        f = pd.read_csv(result)
 
+        t = result.split('/')[-2]
+        tem = re.search(r't0=\S+t1=\S+t2=\S+t3=\S+t4=\S{5}', t).group()
+        tems.append(tem)
+        accs.append(max(f['accuracy']))
+    
+    df = pd.DataFrame({'temperature': tems, 'accuracy': accs})
+    df = df.sort_values(by=['accuracy'], ascending=False)
+    
+    df.to_csv(os.path.join(path, 'trial_best.csv'))
+        
+    
+def main(args):
+    
     search_space = {
+        "t0": tune.uniform(1e-5, 10),
+        "t1": tune.uniform(1e-5, 10),
+        "t2": tune.uniform(1e-5, 10),
+        "t3": tune.uniform(1e-5, 10),
+        "t4": tune.uniform(1e-5, 10),
         "arch": args.arch,
-        "t0": tune.uniform(1e-5, 0.5),
-        "t1": tune.uniform(1e-5, 1),
-        "t2": tune.uniform(1, 5),
-        "t3": tune.uniform(2, 10),
-        "t4": tune.uniform(2, 10),
+        "num_class": 200,
+        "epochs": args.epochs,
     }
-
-    algo = BayesOptSearch(metric='loss', mode='min', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
+    
+    name = args.arch.split('a')[0]
+    pretrain = load_state_dict_from_url(model_urls[name])
+    
+    # define search algorithm
+    algo = BayesOptSearch(metric='accuracy', mode='max', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
+    
+    # allocate trial resources
+    trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
+    
+    # define trail scheduler
+    asha_scheduler = ASHAScheduler(
+        time_attr='epoch',
+        metric='accuracy',
+        mode='max',
+        grace_period=40,
+    )
+    
     tune_config = tune.TuneConfig(
-        num_samples=args.iter,
-        search_alg=algo
+        num_samples=args.num_samples,
+        search_alg=algo,
+        scheduler=asha_scheduler,
     )
 
     checkpoint_config = CheckpointConfig(
-        num_to_keep=1,
+        num_to_keep=2,
         checkpoint_score_attribute='accuracy',
         checkpoint_score_order='max'
     )
+    
+    run_config = RunConfig(
+        name=args.arch,
+        local_dir=args.exp,
+        checkpoint_config=checkpoint_config,
+    )
 
     tuner = tune.Tuner(
-        tune.with_resources(train_model, {'gpu': 1, 'cpu': 4}),
+        tune.with_parameters(trainable, data=pretrain),
         tune_config=tune_config,
-        run_config=RunConfig(local_dir='./test_run', name=args.path, checkpoint_config=checkpoint_config),
+        run_config=run_config,
         param_space=search_space,
     )
+    
     results = tuner.fit()
+    
+    compute_csv(os.path.join(args.exp, args.arch))
+    
+
+        
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--arch', help='model architecture', type=str, default='vgg16aw')
+    parser.add_argument('--kind', help='acquisition function kind', type=str, default='ucb', choices=['ucb', 'ei', 'pi'])
+    parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
+    parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
+    parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
+    parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
+    parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
+    parser.add_argument('--gpus', help='how many gpus can a trial use', type=int, default=1)
+    parser.add_argument('--cpus', help='how many cpus can a trial use', type=int, default=2)
+    
+    args = parser.parse_args()
+    main(args)
+
+#     search_space = {
+#         "arch": args.arch,
+#         "t0": tune.uniform(1e-5, 0.5),
+#         "t1": tune.uniform(1e-5, 1),
+#         "t2": tune.uniform(1, 5),
+#         "t3": tune.uniform(2, 10),
+#         "t4": tune.uniform(2, 10),
+#     }
+
+#     algo = BayesOptSearch(metric='loss', mode='min', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
+#     tune_config = tune.TuneConfig(
+#         num_samples=args.iter,
+#         search_alg=algo
+#     )
+
+#     checkpoint_config = CheckpointConfig(
+#         num_to_keep=1,
+#         checkpoint_score_attribute='accuracy',
+#         checkpoint_score_order='max'
+#     )
+
+#     tuner = tune.Tuner(
+#         tune.with_resources(train_model, {'gpu': 1, 'cpu': 4}),
+#         tune_config=tune_config,
+#         run_config=RunConfig(local_dir='./test_run', name=args.path, checkpoint_config=checkpoint_config),
+#         param_space=search_space,
+#     )
+#     results = tuner.fit()

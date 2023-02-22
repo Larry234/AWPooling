@@ -45,17 +45,17 @@ def get_network(net, num_class=100, device=None):
         from models.vggaw import VGG19AW
         model = VGG19AW(num_class=num_class)
     elif net == 'vgg11awt':
-        from models.vggaw import VGG11
-        model = VGG11(num_class=num_class)
+        from models.vggaw import VGG11AWT
+        model = VGG11AWT(num_class=num_class)
     elif net == 'vgg13awt':
-        from models.vggaw import VGG13
-        model = VGG13(num_class=num_class)
+        from models.vggaw import VGG13AWT
+        model = VGG13AWT(num_class=num_class)
     elif net == 'vgg16awt':
-        from models.vggaw import VGG16
-        model = VGG16(num_class=num_class)
+        from models.vggaw import VGG16AWT
+        model = VGG16AWT(num_class=num_class)
     elif net == 'vgg19awt':
-        from models.vggaw import VGG19
-        model = VGG19(num_class=num_class)
+        from models.vggaw import VGG19AWT
+        model = VGG19AWT(num_class=num_class)
     elif net == 'densenet121':
         from models.densenet import densenet121
         model = densenet121()

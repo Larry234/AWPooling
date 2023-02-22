@@ -4,9 +4,9 @@ from torch.autograd import Variable
 from .awpooling import *
 
 
-class VGG11(nn.Module):
+class VGG11AWT(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG11, self).__init__()
+        super(VGG11AWT, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -124,9 +124,9 @@ class VGG11(nn.Module):
         
 
 # ====================================== VGG13 ===================================================
-class VGG13(nn.Module):
+class VGG13AWT(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG13, self).__init__()
+        super(VGG13AWT, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -242,9 +242,9 @@ class VGG13(nn.Module):
             self.aw5.requires_grad = True
                 
 # ====================================== VGG16 ===================================================
-class VGG16(nn.Module):
+class VGG16AWT(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG16, self).__init__()
+        super(VGG16AWT, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -371,9 +371,9 @@ class VGG16(nn.Module):
 
 
 # ====================================== VGG19 ===================================================
-class VGG19(nn.Module):
+class VGG19AWT(nn.Module):
     def __init__(self, num_class=100, init_weights=True):
-        super(VGG19, self).__init__()
+        super(VGG19AWT, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
