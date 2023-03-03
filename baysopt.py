@@ -18,6 +18,7 @@ from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.hyperopt import HyperOptSearch
 
 import os
+import re
 import argparse
 from glob import glob
 import pandas as pd
@@ -208,7 +209,8 @@ def train_from_pretrain(config, data=None):
         
 def compute_result(path):
     results = glob(os.path.join(path, '**', 'progress.csv'))
-    
+    tems = []
+    accs = []
     for result in results:
         f = pd.read_csv(result)
 
@@ -220,7 +222,7 @@ def compute_result(path):
     df = pd.DataFrame({'temperature': tems, 'accuracy': accs})
     df = df.sort_values(by=['accuracy'], ascending=False)
     
-    df.to_csv(os.path.join(path, 'trial_best.csv'))
+    df.to_csv(os.path.join(path, 'trial_best.csv'), index=False)
         
     
 def main(args):
@@ -293,8 +295,8 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
     parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
-    parser.add_argument('--gpus', help='how many gpus can a trial use', type=int, default=1)
-    parser.add_argument('--cpus', help='how many cpus can a trial use', type=int, default=2)
+    parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
+    parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
     
     args = parser.parse_args()
     main(args)
