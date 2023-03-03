@@ -41,6 +41,15 @@ def train(epoch):
 
         n_iter = (epoch - 1) * len(cifar100_training_loader) + batch_index + 1
 
+        if plot_t:
+            optimzier_t.step()
+            optimzier_t.zero_grad()
+            writer.add_scalar('Temperature/t0', net.t[0], n_iter)
+            writer.add_scalar('Temperature/t1', net.t[1], n_iter)
+            writer.add_scalar('Temperature/t2', net.t[2], n_iter)
+            writer.add_scalar('Temperature/t3', net.t[3], n_iter)
+            writer.add_scalar('Temperature/t4', net.t[4], n_iter)
+
         last_layer = list(net.children())[-1]
         for name, para in last_layer.named_parameters():
             if 'weight' in name:
@@ -108,7 +117,7 @@ def eval_training(epoch=0, tb=True):
 
     #add informations to tensorboard
     if tb:
-        writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader.dataset), epoch)
+        writer.add_scalar('Test/Average loss', test_loss / len(cifar100_test_loader), epoch)
         writer.add_scalar('Test/Accuracy', correct.float() / len(cifar100_test_loader.dataset), epoch)
 
     return correct.float() / len(cifar100_test_loader.dataset)
@@ -145,7 +154,10 @@ if __name__ == '__main__':
 
     loss_function = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=args.lr, momentum=0.9, weight_decay=5e-4)
+    optimizer_t = None
+    plot_t = False
     if 'awt' in args.net:
+        plot_t = True
         optimzier_t = optim.SGD([net.t], lr=args.lr/10)
     train_scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=settings.MILESTONES, gamma=0.2) #learning rate decay
     iter_per_epoch = len(cifar100_training_loader)

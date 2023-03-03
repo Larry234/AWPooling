@@ -24,7 +24,6 @@ from torch.hub import load_state_dict_from_url
 from torch.utils.tensorboard import SummaryWriter
 
 from utils import get_network
-from conf import settings
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -53,7 +52,7 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
 parser.add_argument('--img-size', default=64, type=int, help='image size for training')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--lrt', '--learning-rate-t', default=1, type=float,
+parser.add_argument('--lrt', '--learning-rate-t', default=None, type=float,
                     metavar='LRT', help='initial learning rate for temperature training', dest='lrt')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -85,10 +84,14 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
-parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
-parser.add_argument('--logdir', default='runs',type=str, help="tensorboard logging directory")
-parser.add_argument('--url', type=str, help='pretrained model url')
-parser.add_argument('--enable', type=int, help='enable temperature training layer index')
+parser.add_argument('--cp', default='checkpoints/tiny-imagenet', type=str,
+                    help='model checkpoint path')
+parser.add_argument('--dummy', action='store_true', 
+                    help="use fake data to benchmark")
+parser.add_argument('--logdir', default='runs/tiny-imagenet',type=str, 
+                    help="tensorboard logging directory")
+parser.add_argument('--url', default=None, 
+                    type=str, help='pretrained model url')
 
 best_acc1 = 0
 
@@ -136,7 +139,7 @@ def main_worker(gpu, ngpus_per_node, args):
         
     # setup tensorboard
         
-    writer = SummaryWriter(log_dir=os.path.join(settings.LOG_DIR, args.arch, args.logdir))
+    writer = SummaryWriter(log_dir=os.path.join(args.logdir, args.arch))
     
     args.gpu = gpu
 
@@ -192,7 +195,7 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         # DataParallel will divide and allocate batch_size to all available GPUs
         if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
-            model.features = torch.nn.DataParallel(model.features)
+            model.features = torch.nn.DataParallel(model)
             model.cuda()
         else:
             model = torch.nn.DataParallel(model).cuda()
@@ -226,7 +229,8 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer_t = None
     plot_t = False
     
-    if 'awt' in args.arch:
+    if 'awt' in args.arch: # finetune temperature
+        assert args.lrt != None, "please specify the learning rate of temperature"
         param_list = []
         param_list_t = []
         plot_t = True
@@ -236,7 +240,7 @@ def main_worker(gpu, ngpus_per_node, args):
             else:
                 param_list += [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay}]
         optimizer = torch.optim.SGD(param_list)
-        optimizer_t = torch.optim.Adam(param_list_t)
+        optimizer_t = torch.optim.SGD(param_list_t)
     
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
@@ -329,7 +333,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # evaluate on validation set
         loss, acc1, acc5 = validate(val_loader, model, criterion, args)
         
-        scheduler.step()
+        # scheduler.step()
         
         writer.add_scalar('Train/loss', tloss, epoch+1)
         writer.add_scalar('Train/acc1', tacc1, epoch+1)
@@ -356,8 +360,8 @@ def main_worker(gpu, ngpus_per_node, args):
                     'temperature': temperature,
                     'optimizer' : optimizer.state_dict(),
                     'optimizer_t': optimizer_t.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
+                    # 'scheduler' : scheduler.state_dict()
+                }, is_best, filename=f'{args.arch}_best.pth.tar', root=args.cp)
             
             else:
                 save_checkpoint({
@@ -366,8 +370,8 @@ def main_worker(gpu, ngpus_per_node, args):
                     'state_dict': model.state_dict(),
                     'best_acc1': best_acc1,
                     'optimizer' : optimizer.state_dict(),
-                    'scheduler' : scheduler.state_dict()
-                }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.CHECKPOINT_PATH)
+                    # 'scheduler' : scheduler.state_dict()
+                }, is_best, filename=f'{args.arch}_best.pth.tar', root=args.cp)
 
 
 def train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer, plot_t):

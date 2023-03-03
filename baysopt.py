@@ -5,7 +5,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 from models.awpooling import AWPool2d
 from utils import get_network
-from conf import settings
 
 import ray
 from ray import tune
@@ -17,6 +16,7 @@ from ray.air.checkpoint import Checkpoint
 from ray.tune.search.bayesopt import BayesOptSearch
 from ray.tune.search.hyperopt import HyperOptSearch
 
+import re
 import os
 import argparse
 from glob import glob
@@ -28,7 +28,7 @@ model_urls = {
     'vgg16': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth',
     'vgg19': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth',
 }
-
+TUNE_T_PATH = 'HPO/tiny-imagenet'
 
 def load_pretrain(model, pretrain):
     
@@ -49,7 +49,7 @@ def load_pretrain(model, pretrain):
 
     model.load_state_dict(model_dict, strict=False)
 
-def get_loader(root='/root/notebooks/nfs/work/dataset/tiny-imagenet-200'):
+def get_loader(root):
     
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     traindir = os.path.join(root, 'train')
@@ -84,6 +84,7 @@ def train_model(config):
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
     train_loader, val_loader = get_loader('/home/larry/Datasets/tiny-imagenet-200')
     
+    save_root = '/home/larry/AWPooling/baysopt'
     model = get_network(net=config['arch'], num_class=200)
     model.set_temperature(config)
     model.to(device)
@@ -147,10 +148,10 @@ def train_from_pretrain(config, data=None):
     save_root = '/home/larry/AWPooling/baysopt'
     os.makedirs(save_root, exist_ok=True)
     
-    device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-    train_loader, val_loader = get_loader()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    train_loader, val_loader = get_loader(args.data)
     
-    save_root = os.path.join(settings.TUNE_T_PATH, args.arch)
+    save_root = os.path.join(TUNE_T_PATH, args.arch)
     os.makedirs(save_root, exist_ok=True)
     
     # load model and pretrain weight
@@ -208,7 +209,8 @@ def train_from_pretrain(config, data=None):
         
 def compute_result(path):
     results = glob(os.path.join(path, '**', 'progress.csv'))
-    
+    tems = []
+    accs = []
     for result in results:
         f = pd.read_csv(result)
 
@@ -220,7 +222,7 @@ def compute_result(path):
     df = pd.DataFrame({'temperature': tems, 'accuracy': accs})
     df = df.sort_values(by=['accuracy'], ascending=False)
     
-    df.to_csv(os.path.join(path, 'trial_best.csv'))
+    df.to_csv(os.path.join(path, 'trial_best.csv'), index=False)
         
     
 def main(args):
@@ -234,6 +236,7 @@ def main(args):
         "arch": args.arch,
         "num_class": 200,
         "epochs": args.epochs,
+        "data": args.data,
     }
     
     name = args.arch.split('a')[0]
@@ -280,21 +283,22 @@ def main(args):
     
     results = tuner.fit()
     
-    compute_csv(os.path.join(args.exp, args.arch))
+    compute_result(os.path.join(args.exp, args.arch))
     
 
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--arch', help='model architecture', type=str, default='vgg16aw')
+    parser.add_argument('--data', help='path to dataset', type=str, default='/home/larry/Datasets/tiny-imagenet-200')
     parser.add_argument('--kind', help='acquisition function kind', type=str, default='ucb', choices=['ucb', 'ei', 'pi'])
     parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
     parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
     parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
-    parser.add_argument('--gpus', help='how many gpus can a trial use', type=int, default=1)
-    parser.add_argument('--cpus', help='how many cpus can a trial use', type=int, default=2)
+    parser.add_argument('--gpus', help='how many gpus can a trial use', type=float, default=1)
+    parser.add_argument('--cpus', help='how many cpus can a trial use', type=float, default=2)
     
     args = parser.parse_args()
     main(args)
