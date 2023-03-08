@@ -24,10 +24,18 @@ from torch.hub import load_state_dict_from_url
 from torch.utils.tensorboard import SummaryWriter
 
 from utils import get_network
+from baysopt import load_pretrain
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
+
+model_urls = {
+    'vgg11': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth',
+    'vgg13': 'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth',
+    'vgg16': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth',
+    'vgg19': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth',
+}
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR', nargs='?', default='imagenet',
@@ -160,7 +168,11 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
+#         model = models.__dict__[args.arch](pretrained=True)
+        model_name = args.arch.split('a')[0]
+        pretrain_dict = load_state_dict_from_url(model_urls[model_name])
+        model = get_network(args.arch, num_class=200)
+        load_pretrain(model, pretrain_dict)
     else:
         print("=> creating model '{}'".format(args.arch))
         model = get_network(args.arch, num_class=200)
