@@ -18,6 +18,7 @@ from ray.tune.search.hyperopt import HyperOptSearch
 
 import re
 import os
+import re
 import argparse
 from glob import glob
 import pandas as pd
@@ -297,8 +298,8 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
     parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
-    parser.add_argument('--gpus', help='how many gpus can a trial use', type=float, default=1)
-    parser.add_argument('--cpus', help='how many cpus can a trial use', type=float, default=2)
+    parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
+    parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
     
     args = parser.parse_args()
     main(args)
