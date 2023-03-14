@@ -9,10 +9,16 @@ from models.vggaw import VGG11AW, VGG11AWT
 import os
 import argparse
 
+from utils import get_network
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--logdir', help='tensorboard path', default='Gradient_analysis')
+parser.add_argument('--data', help='Dataset path', default='/home/larry/Datasets/tiny-imagenet-200')
+parser.add_argument('--arch', help='model architecture', type=str)
+parser.add_argument('--epochs', help='number of epochs', type=int, default=60)
+parser.add_argument('--batch-size', help='number of images in one iteration', type=int, default=128)
 parser.add_argument('--scale', help='scale of delta', type=int, default=1)
 parser.add_argument('--seed', help='random seed to keep initial weight equal',type=int, default=777)
+parser.add_argument('--logdir', help='tensorboard path', default='Gradient_analysis')
 
 
 class Net(nn.Module):
@@ -42,10 +48,10 @@ class Net(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(64, 256),
             nn.ReLU(),
-            # nn.Dropout(),
+            nn.Dropout(),
             nn.Linear(256, 256),
             nn.ReLU(),
-            # nn.Dropout(),
+            nn.Dropout(),
             nn.Linear(256, num_class),
         )
 
@@ -81,24 +87,62 @@ if __name__ == '__main__':
     delta = 1
     for i in range(args.scale):
         delta *= 0.1
-
-    writer = SummaryWriter(log_dir=os.path.join(args.logdir, f'delta={delta}'))
+    
+    arch = args.arch if args.arch != None else 'SimpleNet'
+    writer = SummaryWriter(log_dir=os.path.join(args.logdir, arch, f'delta={delta}'))
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    ds = ImageFolder(root='/home/larry/Datasets/tiny-imagenet-200/train', transform=transforms.Compose([
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        normalize
-    ]))
-    loader = torch.utils.data.DataLoader(ds, shuffle=True, batch_size=128, num_workers=2)
 
-    model = Net()
+    traindir = os.path.join(args.data, 'train')
+    valdir = os.path.join(args.data, 'val')
+
+    train_ds = ImageFolder(
+        root=traindir, 
+        transform=transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize
+        ])
+    )
+
+    val_ds = ImageFolder(
+        root=valdir,
+        transform=transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])
+    )
+    train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=128, num_workers=2, pin_memory=True)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=128, num_workers=2, pin_memory=True)
+
+    if args.arch:
+        model = get_network(args.arch, num_class=200)
+    else:
+        model = Net()
+
     params = [{'params': p, 'lr': 0.1} for n, p in model.named_parameters() if 'aw' not in n]
     optimizer = torch.optim.SGD(params)
     criterion = nn.CrossEntropyLoss()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    for i, data in enumerate(loader):
+    # training process
+    for i, data in enumerate(train_loader):
+        images, label = data
+        images = images.to(device)
+        label = label.to(device)
+
+        logits = model(images)
+        loss = criterion(logits, label)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    # validation process
+    for i, data in enumerate(val_loader):
+        # freeze batchNorm layer and Dropout layer
+        model.eval()
+
         images, label = data
         images = images.to(device)
         label = label.to(device)
@@ -126,12 +170,33 @@ if __name__ == '__main__':
         base_loss = criterion(logits, label)
         base_loss.backward()
 
+        exact_diff = model.aw1.t.grad
+        f_diff = (forward_loss - base_loss) / delta
+        b_diff = (base_loss - backward_loss) / delta
+        c_diff = (forward_loss - backward_loss) / (2 * delta)
+
+        print(f'iter {i}: ' \
+              f'exact grad: {exact_diff.item(): .8f}\n' \
+              f'forward diff: {f_diff.item(): .8f}\n'  \
+              f'backward diff: {b_diff.item(): .8f}\n'  \
+              f'central diff: {c_diff.item()}\n')
+
         # plot gradient on tensorboard
         writer.add_scalars('Gradient analysis', {
-            'Automatic differentiation': model.aw1.t.grad,
-            'Forward difference': (forward_loss - base_loss) / delta,
-            'Backward difference': (base_loss - backward_loss) / delta,
-            'Central difference': (forward_loss - backward_loss) / (2 * delta),
+            'Automatic differentiation': exact_diff,
+            'Forward difference': f_diff,
+            'Backward difference': b_diff,
+            'Central difference': c_diff,
+        }, i)
+
+        f_diff = torch.abs(exact_diff - f_diff) if torch.sign(exact_diff) == torch.sign(f_diff) else -torch.abs(exact_diff - f_diff)
+        b_diff = torch.abs(exact_diff - b_diff) if torch.sign(exact_diff) == torch.sign(b_diff) else -torch.abs(exact_diff - b_diff)
+        f_diff = torch.abs(exact_diff - c_diff) if torch.sign(exact_diff) == torch.sign(c_diff) else -torch.abs(exact_diff - c_diff)
+
+        writer.add_scalars('Difference', {
+            'Forward': f_diff,
+            'Backward': b_diff,
+            'Central': c_diff
         }, i)
 
         # update model parameters
