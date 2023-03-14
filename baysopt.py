@@ -22,6 +22,7 @@ import re
 import argparse
 from glob import glob
 import pandas as pd
+import json
 
 model_urls = {
     'vgg11': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth',
@@ -209,21 +210,29 @@ def train_from_pretrain(config, data=None):
         session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
         
 def compute_result(path):
-    results = glob(os.path.join(path, '**', 'progress.csv'))
+    csv_path = glob(os.path.join(path, '**', 'progress.csv'))
+    json_path = glob(os.path.join(path, '**', 'params.json'))
     tems = []
     accs = []
-    for result in results:
-        f = pd.read_csv(result)
 
-        t = result.split('/')[-2]
-        tem = re.search(r't0=\S+t1=\S+t2=\S+t3=\S+t4=\S{5}', t).group()
-        tems.append(tem)
-        accs.append(max(f['accuracy']))
+    for c, j in zip(csv_path, json_path):
+        trial_name = ""
+        csv_f = pd.read_csv(c)
+        accs.append(max(csv_f['accuracy']))
+        f = open(j)
+        json_f = json.load(f)
+
+        params = list(json_f.keys())[-5:]
+        values = list(json_f.values())[-5:]
+        for t, v in zip(params, values):
+            trial_name += f'{t}={v},'
+        tems.append(trial_name)
+
+    df = pd.DataFrame({'tems': tems, 'accs': accs})
+    df = df.sort_values(by=['accs'], ascending=False)
+    df.to_csv(os.path.join(path, 'best.csv'), index=False)
     
-    df = pd.DataFrame({'temperature': tems, 'accuracy': accs})
-    df = df.sort_values(by=['accuracy'], ascending=False)
     
-    df.to_csv(os.path.join(path, 'trial_best.csv'), index=False)
         
     
 def main(args):
