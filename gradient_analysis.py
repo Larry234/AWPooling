@@ -191,7 +191,7 @@ if __name__ == '__main__':
 
         f_diff = torch.abs(exact_diff - f_diff) if torch.sign(exact_diff) == torch.sign(f_diff) else -torch.abs(exact_diff - f_diff)
         b_diff = torch.abs(exact_diff - b_diff) if torch.sign(exact_diff) == torch.sign(b_diff) else -torch.abs(exact_diff - b_diff)
-        f_diff = torch.abs(exact_diff - c_diff) if torch.sign(exact_diff) == torch.sign(c_diff) else -torch.abs(exact_diff - c_diff)
+        c_diff = torch.abs(exact_diff - c_diff) if torch.sign(exact_diff) == torch.sign(c_diff) else -torch.abs(exact_diff - c_diff)
 
         writer.add_scalars('Difference', {
             'Forward': f_diff,
