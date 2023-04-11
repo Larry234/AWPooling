@@ -175,7 +175,10 @@ def get_network(net, num_class=100, device=None):
         model = stochastic_depth_resnet50()
     elif net == 'stochasticdepth101':
         from models.stochasticdepth import stochastic_depth_resnet101
-        model = stochastic_depth_resnet101()
+        model = stochastic_depth_resnet101
+    elif net == 'simplenet':
+        from models.simplenet import SimpleNet
+        model = SimpleNet(num_class=num_class)
 
     else:
         print('the network name you have entered is not supported yet')
