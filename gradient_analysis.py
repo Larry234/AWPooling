@@ -1,100 +1,184 @@
 import torch
 import torch.nn as nn
+import torch.nn.parallel
+import torch.backends.cudnn as cudnn
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.optim.lr_scheduler import StepLR
 from models.awpooling import *
 from torchvision.datasets import ImageFolder
 from torchvision.transforms import transforms
 from torch.utils.tensorboard import SummaryWriter
-
-from models.vggaw import VGG11AW, VGG11AWT
-import os
+from torch.utils.data import Subset
+ 
 import argparse
+import os
+import random
+import shutil
+import time
+import warnings
+import pandas as pd
+from enum import Enum
 
 from utils import get_network
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--data', help='Dataset path', default='/home/larry/Datasets/tiny-imagenet-200')
-parser.add_argument('--arch', help='model architecture', type=str)
-parser.add_argument('--epochs', help='number of epochs', type=int, default=60)
+parser.add_argument('--num_samples', help='number of trials', type=int, default=30)
+parser.add_argument('--numerical', help='calculate gradient numerically', action='store_true')
+parser.add_argument('--arch', help='model architecture', type=str, default='simplenet')
+parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+                    help='number of data loading workers (default: 4)')
+parser.add_argument('--epochs', help='number of epochs', type=int, default=90)
 parser.add_argument('--batch-size', help='number of images in one iteration', type=int, default=128)
 parser.add_argument('--scale', help='scale of delta', type=int, default=1)
-parser.add_argument('--seed', help='random seed to keep initial weight equal',type=int, default=777)
+parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
+                    metavar='LR', help='initial learning rate', dest='lr')
+parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
+                    help='momentum')
+parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
+                    metavar='W', help='weight decay (default: 1e-4)',
+                    dest='weight_decay')
 parser.add_argument('--logdir', help='tensorboard path', default='Gradient_analysis')
+parser.add_argument('--seed', default=None, type=int,
+                    help='seed for initializing training. ')
+parser.add_argument('--world-size', default=-1, type=int,
+                    help='number of nodes for distributed training')
+parser.add_argument('--rank', default=-1, type=int,
+                    help='node rank for distributed training')
+parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
+                    help='url used to set up distributed training')
+parser.add_argument('--dist-backend', default='nccl', type=str,
+                    help='distributed backend')
+parser.add_argument('--multiprocessing-distributed', action='store_true',
+                    help='Use multi-processing distributed training to launch '
+                         'N processes per node, which has N GPUs. This is the '
+                         'fastest way to use PyTorch for either single node or '
+                         'multi node data parallel training')
+parser.add_argument('--gpu', default=None, type=int,
+                    help='GPU id to use.')
 
 
-class Net(nn.Module):
-    def __init__(self, num_class=200):
-        super(Net, self).__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(64),
-        )
-        self.aw1 = AWPool2d_()
-
-        # self.conv2 = nn.Sequential(
-        #     nn.Conv2d(64, 128, kernel_size=3, padding=1),
-        #     nn.ReLU(),
-        #     nn.BatchNorm2d(128),
-        #     nn.Conv2d(128, 128, kernel_size=3, padding=1),
-        #     nn.ReLU(),
-        #     nn.BatchNorm2d(128),
-        # )
-        # self.aw2 = AWPool2d_()
-    
-        self.globalavg = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Sequential(
-            nn.Linear(64, 256),
-            nn.ReLU(),
-            nn.Dropout(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Dropout(),
-            nn.Linear(256, num_class),
-        )
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.aw1(x)
-        x = self.globalavg(x)
-        x = torch.flatten(x, start_dim=1)
-        x = self.classifier(x)
-        return x
-
-    def _initialize_weights(self) -> None:
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                nn.init.constant_(m.bias, 0)
-    def set_t(self, t):
-        self.aw1.t = t
-
-if __name__ == '__main__':
-
+def main():
     args = parser.parse_args()
 
-    torch.manual_seed(args.seed)
+    if args.seed is not None:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        cudnn.deterministic = True
+        cudnn.bechmark = False
+        warnings.warn('You have chosen to seed training. '
+                      'This will turn on the CUDNN deterministic setting, '
+                      'which can slow down your training considerably! '
+                      'You may see unexpected behavior when restarting '
+                      'from checkpoints.')
 
-    delta = 1
-    for i in range(args.scale):
-        delta *= 0.1
+    if args.gpu is not None:
+        warnings.warn('You have chosen a specific GPU. This will completely '
+                      'disable data parallelism.')
+
+    if args.dist_url == "env://" and args.world_size == -1:
+        args.world_size = int(os.environ["WORLD_SIZE"])
+
+    args.distributed = args.world_size > 1 or args.multiprocessing_distributed
     
-    arch = args.arch if args.arch != None else 'SimpleNet'
-    writer = SummaryWriter(log_dir=os.path.join(args.logdir, arch, f'delta={delta}'))
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    if torch.cuda.is_available():
+        ngpus_per_node = torch.cuda.device_count()
+    
+    if args.multiprocessing_distributed:
+        # Since we have ngpus_per_node processes per node, the total world_size
+        # needs to be adjusted accordingly
+        args.world_size = ngpus_per_node * args.world_size
+        # Use torch.multiprocessing.spawn to launch distributed processes: the
+        # main_worker process function
+        mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
+    else:
+        # Simply call main_worker function
+        main_worker(args.gpu, ngpus_per_node, args)
 
+def main_worker(gpu, ngpus_per_node, args):
+    global best_acc1
+    
+#     writer = SummaryWriter(log_dir=os.path.join(args.logdir, args.arch))
+    
+    args.gpu = gpu
+    
+    if args.gpu is not None:
+        print("Use GPU: {} for training".format(args.gpu))
+        
+    if args.distributed:
+        if args.dist_url == "env://" and args.rank == -1:
+            args.rank = int(os.environ["RANK"])
+        if args.multiprocessing_distributed:
+            # For multiprocessing distributed training, rank needs to be the
+            # global rank among all the processes
+            args.rank = args.rank * ngpus_per_node + gpu
+        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+                                world_size=args.world_size, rank=args.rank)
+
+    
+    # create model
+    model = get_network(args.arch, num_class=200)
+     
+    if not torch.cuda.is_available() and not torch.backends.mps.is_available():
+        print('using CPU, this will be slow')
+    elif args.distributed:
+        # For multiprocessing distributed, DistributedDataParallel constructor
+        # should always set the single device scope, otherwise,
+        # DistributedDataParallel will use all available devices.
+        if torch.cuda.is_available():
+            if args.gpu is not None:
+                torch.cuda.set_device(args.gpu)
+                model.cuda(args.gpu)
+                # When using a single GPU per process and per
+                # DistributedDataParallel, we need to divide the batch size
+                # ourselves based on the total number of GPUs of the current node.
+                args.batch_size = int(args.batch_size / ngpus_per_node)
+                args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+                model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+            else:
+                model.cuda()
+                # DistributedDataParallel will divide and allocate batch_size to all
+                # available GPUs if device_ids are not set
+                model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+    elif args.gpu is not None and torch.cuda.is_available():
+        torch.cuda.set_device(args.gpu)
+        model = model.cuda(args.gpu)
+#     elif torch.backends.mps.is_available():
+#         device = torch.device("mps")
+#         model = model.to(device)
+    else:
+        # DataParallel will divide and allocate batch_size to all available GPUs
+        if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
+            model.features = torch.nn.DataParallel(model)
+            model.cuda()
+        else:
+            model = torch.nn.DataParallel(model).cuda()
+            
+    if torch.cuda.is_available():
+        if args.gpu:
+            device = torch.device('cuda:{}'.format(args.gpu))
+        else:
+            device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+        
+    # define loss function (criterion), optimizer, and learning rate scheduler
+    criterion = nn.CrossEntropyLoss().cuda(args.gpu)
+    
+    params = [{'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay} \
+              for n, p in model.named_parameters() if 'aw' not in n]
+    params_t = [{'params': p, 'lr': 1.} for n, p in model.named_parameters() if 'aw' in n]
+    
+    optimizer = torch.optim.SGD(params)
+    optimizer_t = torch.optim.SGD(params_t)
+    
+    scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
+    
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
-
+    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    
     train_ds = ImageFolder(
         root=traindir, 
         transform=transforms.Compose([
@@ -111,97 +195,279 @@ if __name__ == '__main__':
             normalize,
         ])
     )
-    train_loader = torch.utils.data.DataLoader(train_ds, shuffle=True, batch_size=128, num_workers=2, pin_memory=True)
-    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=128, num_workers=2, pin_memory=True)
-
-    if args.arch:
-        model = get_network(args.arch, num_class=200)
+    
+    if args.distributed:
+        train_sampler = torch.utils.data.distributed.DistributedSampler(train_ds)
+        val_sampler = torch.utils.data.distributed.DistributedSampler(val_ds, shuffle=False, drop_last=True)
     else:
-        model = Net()
+        train_sampler = None
+        val_sampler = None
+    
+    train_loader = torch.utils.data.DataLoader(
+        train_ds, batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+    
+    val_loader = torch.utils.data.DataLoader(
+        val_ds, batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True, sampler=val_sampler)
+    
+    temperatures = []
+    best_acc = []
+    
+    for ns in range(args.num_samples):
+        best_acc1 = 0
+        for epoch in range(args.epochs):
+        
+            if args.distributed:
+                train_sampler.set_epoch(epoch)       
 
-    params = [{'params': p, 'lr': 0.1} for n, p in model.named_parameters() if 'aw' not in n]
-    optimizer = torch.optim.SGD(params)
-    criterion = nn.CrossEntropyLoss()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
+            # train for one epoch
+#             tloss, tacc1 = train(train_loader, model, criterion, optimizer, optimizer_t, epoch, args, writer)
+            tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args)
 
-    # training process
-    for i, data in enumerate(train_loader):
-        images, label = data
-        images = images.to(device)
-        label = label.to(device)
+            # evaluate on validation set
+            loss, acc1, acc5 = validate(val_loader, model, criterion, args)
 
-        logits = model(images)
-        loss = criterion(logits, label)
+            scheduler.step()
 
+            # remember best acc@1 and save checkpoint
+            is_best = acc1 > best_acc1
+            best_acc1 = max(acc1, best_acc1)
+            
+        if args.distributed:
+            temperatures.append(model.module.get_t())
+        else:
+            temperatures.append(model.get_t())
+        best_acc.append(best_acc1)
+        
+        update_t(val_loader, model, criterion, optimizer_t, args)
+        
+        # set initial temperature for next round training
+        if args.distributed:
+            next_t = model.module.get_t()
+            model.module._initialize_weights()
+            model.module.set_t(next_t)
+        else:
+            next_t = model.get_t()
+            model._initialize_weights()
+            model.set_t(next_t)
+    
+    df = pd.DataFrame({'tems': temperatures, 'best_acc': best_acc})
+    df.to_csv(os.path.join(args.logidr, f'{args.arch}_hisitory.csv'))
+        
+
+def train(train_loader, model, criterion, optimizer, epoch, args, writer=None):
+    
+    batch_time = AverageMeter('Time', ':6.3f')
+    data_time = AverageMeter('Data', ':6.3f')
+    losses = AverageMeter('Loss', ':.4e')
+    top1 = AverageMeter('Acc@1', ':6.2f')
+    top5 = AverageMeter('Acc@5', ':6.2f')
+    progress = ProgressMeter(
+        len(train_loader),
+        [batch_time, data_time, losses, top1, top5],
+        prefix="Epoch: [{}]".format(epoch))
+
+    # switch to train mode
+    model.train()
+
+    end = time.time()
+    for i, (images, target) in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
+        
+        if torch.cuda.is_available():
+            images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+            
+        # compute output
+        output = model(images)
+        loss = criterion(output, target)
+
+        # measure accuracy and record loss
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        losses.update(loss.item(), images.size(0))
+        top1.update(acc1[0], images.size(0))
+        top5.update(acc5[0], images.size(0))
+
+        # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
+        n_iter = (epoch - 1) * len(train_loader) + i + 1
 
-    # validation process
-    for i, data in enumerate(val_loader):
-        # freeze batchNorm layer and Dropout layer
-        model.eval()
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
 
-        images, label = data
-        images = images.to(device)
-        label = label.to(device)
+        progress.display(i + 1)
+        
+    return losses.avg, top1.avg
 
-        # caculate numercial difference
+
+def validate(val_loader, model, criterion, args):
+
+    def run_validate(loader, base_progress=0):
         with torch.no_grad():
-            model.aw1.t.requires_grad = False
-            origin_t = model.aw1.t.item()
+            end = time.time()
+            for i, (images, target) in enumerate(loader):
+                i = base_progress + i
 
-            # forward
-            model.aw1.t.copy_(torch.tensor(origin_t + delta))
-            logits = model(images)
-            forward_loss = criterion(logits, label)
+                if torch.cuda.is_available():
+                    target = target.cuda(args.gpu, non_blocking=True)
+                    images = images.cuda(args.gpu, non_blocking=True)
 
-            # backward
-            model.aw1.t.copy_(torch.tensor(origin_t - delta))
-            logits = model(images)
-            backward_loss = criterion(logits, label)
+                # compute output
+                output = model(images)
+                loss = criterion(output, target)
 
-        model.aw1.t.copy_(torch.tensor(origin_t))
+                # measure accuracy and record loss
+                acc1, acc5 = accuracy(output, target, topk=(1, 5))
+                losses.update(loss.item(), images.size(0))
+                top1.update(acc1[0], images.size(0))
+                top5.update(acc5[0], images.size(0))
 
-        # Automatic differentiation
-        model.aw1.t.requires_grad = True
-        logits = model(images)
-        base_loss = criterion(logits, label)
-        base_loss.backward()
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
 
-        exact_diff = model.aw1.t.grad
-        f_diff = (forward_loss - base_loss) / delta
-        b_diff = (base_loss - backward_loss) / delta
-        c_diff = (forward_loss - backward_loss) / (2 * delta)
+                progress.display(i + 1)
 
-        print(f'iter {i}: ' \
-              f'exact grad: {exact_diff.item(): .8f}\n' \
-              f'forward diff: {f_diff.item(): .8f}\n'  \
-              f'backward diff: {b_diff.item(): .8f}\n'  \
-              f'central diff: {c_diff.item()}\n')
+    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+    losses = AverageMeter('Loss', ':.4e', Summary.AVERAGE)
+    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
+    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top5],
+        prefix='Validation: ')
 
-        # plot gradient on tensorboard
-        writer.add_scalars('Gradient analysis', {
-            'Automatic differentiation': exact_diff,
-            'Forward difference': f_diff,
-            'Backward difference': b_diff,
-            'Central difference': c_diff,
-        }, i)
+    # switch to evaluate mode
+    model.eval()
 
-        f_diff = torch.abs(exact_diff - f_diff) if torch.sign(exact_diff) == torch.sign(f_diff) else -torch.abs(exact_diff - f_diff)
-        b_diff = torch.abs(exact_diff - b_diff) if torch.sign(exact_diff) == torch.sign(b_diff) else -torch.abs(exact_diff - b_diff)
-        c_diff = torch.abs(exact_diff - c_diff) if torch.sign(exact_diff) == torch.sign(c_diff) else -torch.abs(exact_diff - c_diff)
+    run_validate(val_loader)
+    if args.distributed:
+        top1.all_reduce()
+        top5.all_reduce()
 
-        writer.add_scalars('Difference', {
-            'Forward': f_diff,
-            'Backward': b_diff,
-            'Central': c_diff
-        }, i)
+    if args.distributed and (len(val_loader.sampler) * args.world_size < len(val_loader.dataset)):
+        aux_val_dataset = Subset(val_loader.dataset,
+                                 range(len(val_loader.sampler) * args.world_size, len(val_loader.dataset)))
+        aux_val_loader = torch.utils.data.DataLoader(
+            aux_val_dataset, batch_size=args.batch_size, shuffle=False,
+            num_workers=args.workers, pin_memory=True)
+        run_validate(aux_val_loader, len(val_loader))
+    progress.display_summary()
 
-        # update model parameters
-        optimizer.step()
-        optimizer.zero_grad()
-        model.aw1.t.grad.zero_()
+    return losses.avg, top1.avg, top5.avg
 
-    print(f'{delta} done!')
+def update_t(val_loader, model, criterion, optimizer_t, args):
+    
+    # update temperature on validation set
+    model.eval()
+    
+    for i, (images, target) in enumerate(val_loader):
+        
+        if torch.cuda.is_available():
+            images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+        
+        output = model(images)
+        loss = criterion(output, target)
+        
+        optimizer_t.zero_grad()
+        loss.backward()
+        optimizer_t.step()
+        
+class Summary(Enum):
+    NONE = 0
+    AVERAGE = 1
+    SUM = 2
+    COUNT = 3
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self, name, fmt=':f', summary_type=Summary.AVERAGE):
+        self.name = name
+        self.fmt = fmt
+        self.summary_type = summary_type
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+    def all_reduce(self):
+        total = torch.FloatTensor([self.sum, self.count]).cuda()
+        dist.all_reduce(total, dist.ReduceOp.SUM, async_op=False)
+        self.sum, self.count = total.tolist()
+        self.avg = self.sum / self.count
+
+    def __str__(self):
+        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
+        return fmtstr.format(**self.__dict__)
+    
+    def summary(self):
+        fmtstr = ''
+        if self.summary_type is Summary.NONE:
+            fmtstr = ''
+        elif self.summary_type is Summary.AVERAGE:
+            fmtstr = '{name} {avg:.3f}'
+        elif self.summary_type is Summary.SUM:
+            fmtstr = '{name} {sum:.3f}'
+        elif self.summary_type is Summary.COUNT:
+            fmtstr = '{name} {count:.3f}'
+        else:
+            raise ValueError('invalid summary type %r' % self.summary_type)
+        
+        return fmtstr.format(**self.__dict__)
+
+
+class ProgressMeter(object):
+    def __init__(self, num_batches, meters, prefix=""):
+        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
+        self.meters = meters
+        self.prefix = prefix
+
+    def display(self, batch):
+        entries = [self.prefix + self.batch_fmtstr.format(batch)]
+        entries += [str(meter) for meter in self.meters]
+        print('\t'.join(entries))
+        
+    def display_summary(self):
+        entries = [" *"]
+        entries += [meter.summary() for meter in self.meters]
+        print(' '.join(entries))
+
+    def _get_batch_fmtstr(self, num_batches):
+        num_digits = len(str(num_batches // 1))
+        fmt = '{:' + str(num_digits) + 'd}'
+        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
+
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+        res = []
+        for k in topk:
+            correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        
+        return res
+    
+if __name__ == '__main__':
+    main()

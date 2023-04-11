@@ -80,14 +80,15 @@ def get_loader(root):
     return train_loader, val_loader
 
 
-def train_model(config): 
+def train_model(config, data=None): 
     assert torch.cuda.is_available()
     
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
-    train_loader, val_loader = get_loader('/home/larry/Datasets/tiny-imagenet-200')
+    train_loader, val_loader = get_loader(args.data)
     
-    save_root = '/home/larry/AWPooling/baysopt'
-    model = get_network(net=config['arch'], num_class=200)
+    save_root = '/home/larry/AWPooling/checkpoints/baysopt/from_scratch/' + config['arch']
+    os.makedirs(save_root, exist_ok=True)
+    model = get_network(net=config['arch'], num_class=config['num_class'])
     model.set_temperature(config)
     model.to(device)
     
@@ -98,7 +99,7 @@ def train_model(config):
     best_acc = 0
     running_loss = 0
     
-    for epoch in range(90):
+    for epoch in range(config['epochs']):
         model.train()
         for data in train_loader:
             image, label = data
@@ -114,7 +115,6 @@ def train_model(config):
             optimizer.step()
             
         scheduler.step()
-        print(f"Epoch[{epoch + 1}/90]: loss {running_loss/len(train_loader):.4f}")
         
         running_loss = 0
         corrects = 0
@@ -134,13 +134,12 @@ def train_model(config):
         
         acc = corrects / len(val_loader.dataset)
         
-        best_acc = acc if acc > best_acc else best_acc
+        torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
         
         acc = acc.data.cpu().numpy()
         checkpoint = Checkpoint.from_directory(save_root)
         session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
-    
-    print(f"trial {session.get_trial_name()}: best acc: {best_acc:.4f}")
+
     print("Finish training")
     
     
@@ -163,7 +162,7 @@ def train_from_pretrain(config, data=None):
     model.to(device) 
     
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)
     criterion = nn.CrossEntropyLoss()
     criterion.to(device)
     best_acc = 0
@@ -250,20 +249,38 @@ def main(args):
     }
     
     name = args.arch.split('a')[0]
-    pretrain = load_state_dict_from_url(model_urls[name])
-    
+    pretrain = None
+
     # define search algorithm
     algo = BayesOptSearch(metric='accuracy', mode='max', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
     
+    
     # allocate trial resources
-    trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
+    if args.pretrain:
+        args.exp = os.path.join(args.exp, 'pretrain')
+        pretrain = load_state_dict_from_url(model_urls[name])
+        trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
+    else:
+        args.exp = os.path.join(args.exp, 'scratch')
+        trainable = tune.with_resources(train_model, {'gpu': args.gpus, 'cpu': args.cpus})
+    
+     # restore from previous experiment
+    if args.resume != None:
+        tuner = tune.Tuner.restore(
+            path=args.resume,
+            trainable=tune.with_parameters(trainable, data=pretrain),
+            restart_errored=True
+        )
+        results = tuner.fit()
+        compute_results(args.resume)
+        return
     
     # define trail scheduler
     asha_scheduler = ASHAScheduler(
         time_attr='epoch',
         metric='accuracy',
         mode='max',
-        grace_period=40,
+        grace_period=args.grace_period,
     )
     
     tune_config = tune.TuneConfig(
@@ -283,14 +300,13 @@ def main(args):
         local_dir=args.exp,
         checkpoint_config=checkpoint_config,
     )
-
+        
     tuner = tune.Tuner(
         tune.with_parameters(trainable, data=pretrain),
         tune_config=tune_config,
         run_config=run_config,
         param_space=search_space,
     )
-    
     results = tuner.fit()
     
     compute_result(os.path.join(args.exp, args.arch))
@@ -305,10 +321,13 @@ if __name__ == '__main__':
     parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
     parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
-    parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
+    parser.add_argument('--num-samples', help='iterations of bayesian optimization', type=int, default=30)
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
     parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
     parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
+    parser.add_argument('--pretrain', help='start from pretrain weight', action='store_true')
+    parser.add_argument('--grace-period', help='compare tiral performance after period and drop the worst trial', type=int, default=40)
+    parser.add_argument('--resume', help='restore experiment path', default=None)
     
     args = parser.parse_args()
     main(args)
