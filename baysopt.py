@@ -115,6 +115,7 @@ def train_model(config, data=None):
             optimizer.step()
             
         scheduler.step()
+        print(f"Epoch[{epoch + 1}/90]: loss {running_loss/len(train_loader):.4f}")
         
         running_loss = 0
         corrects = 0
@@ -134,12 +135,13 @@ def train_model(config, data=None):
         
         acc = corrects / len(val_loader.dataset)
         
-        torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
+        best_acc = acc if acc > best_acc else best_acc
         
         acc = acc.data.cpu().numpy()
         checkpoint = Checkpoint.from_directory(save_root)
         session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
-
+    
+    print(f"trial {session.get_trial_name()}: best acc: {best_acc:.4f}")
     print("Finish training")
     
     
@@ -162,11 +164,12 @@ def train_from_pretrain(config, data=None):
     model.to(device) 
     
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3, momentum=0.9, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=40, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
     criterion = nn.CrossEntropyLoss()
     criterion.to(device)
     best_acc = 0
     running_loss = 0
+
     
     for epoch in range(config['epochs']):
         model.train()
@@ -249,38 +252,20 @@ def main(args):
     }
     
     name = args.arch.split('a')[0]
-    pretrain = None
-
+    pretrain = load_state_dict_from_url(model_urls[name])
+    
     # define search algorithm
     algo = BayesOptSearch(metric='accuracy', mode='max', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
     
-    
     # allocate trial resources
-    if args.pretrain:
-        args.exp = os.path.join(args.exp, 'pretrain')
-        pretrain = load_state_dict_from_url(model_urls[name])
-        trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
-    else:
-        args.exp = os.path.join(args.exp, 'scratch')
-        trainable = tune.with_resources(train_model, {'gpu': args.gpus, 'cpu': args.cpus})
-    
-     # restore from previous experiment
-    if args.resume != None:
-        tuner = tune.Tuner.restore(
-            path=args.resume,
-            trainable=tune.with_parameters(trainable, data=pretrain),
-            restart_errored=True
-        )
-        results = tuner.fit()
-        compute_results(args.resume)
-        return
+    trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
     
     # define trail scheduler
     asha_scheduler = ASHAScheduler(
         time_attr='epoch',
         metric='accuracy',
         mode='max',
-        grace_period=args.grace_period,
+        grace_period=40,
     )
     
     tune_config = tune.TuneConfig(
@@ -300,13 +285,14 @@ def main(args):
         local_dir=args.exp,
         checkpoint_config=checkpoint_config,
     )
-        
+
     tuner = tune.Tuner(
         tune.with_parameters(trainable, data=pretrain),
         tune_config=tune_config,
         run_config=run_config,
         param_space=search_space,
     )
+    
     results = tuner.fit()
     
     compute_result(os.path.join(args.exp, args.arch))
@@ -321,13 +307,10 @@ if __name__ == '__main__':
     parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
     parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
-    parser.add_argument('--num-samples', help='iterations of bayesian optimization', type=int, default=30)
+    parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
     parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
     parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
-    parser.add_argument('--pretrain', help='start from pretrain weight', action='store_true')
-    parser.add_argument('--grace-period', help='compare tiral performance after period and drop the worst trial', type=int, default=40)
-    parser.add_argument('--resume', help='restore experiment path', default=None)
     
     args = parser.parse_args()
     main(args)
