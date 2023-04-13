@@ -25,7 +25,6 @@ from torch.hub import load_state_dict_from_url
 from torch.utils.tensorboard import SummaryWriter
 
 from utils import get_network
-from conf import settings
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -61,8 +60,6 @@ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=1, type=int,
                     metavar='N', help='print frequency (default: 1)')
-parser.add_argument('--checkpoint', default='', type=str, metavar='PATH', required=True,
-                    help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
@@ -85,15 +82,22 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 parser.add_argument('--dummy', action='store_true', help="use fake data to benchmark")
-parser.add_argument('--logdir', default='runs',type=str, help="tensorboard logging directory")
+parser.add_argument('--logdir', default='runs/tiny-imagenet/independent analysis', type=str, 
+                    help="tensorboard logging directory")
 parser.add_argument('--url', type=str, help='pretrained model url')
+parser.add_argument('--layer', type=str, default=0, choices=range(5),
+                    help='the sw pooling lyaer temperature you wnat to sampled, 0 represent the first sw pooling layer')
+parser.add_argument('--interval', type=float, nargs=2, 
+                    help='boundary of sampled temperatures, defined by two float')
+parser.add_argument('--samples', default=20, type=int, 
+                    help='number of samples sampled in interval')
 
 best_acc1 = 0
 
 
 def main():
     args = parser.parse_args()
-
+    print(args.interval)
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
@@ -134,7 +138,8 @@ def main_worker(gpu, ngpus_per_node, args):
         
     # setup tensorboard
         
-    writer = SummaryWriter(log_dir=os.path.join(settings.LOG_T, args.arch, args.logdir))
+    # writer = SummaryWriter(log_dir=os.path.join(args.logdir, args.arch))
+    writer = None
     
     args.gpu = gpu
 
@@ -213,32 +218,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # define loss function (criterion), optimizer, and learning rate scheduler
     criterion = nn.CrossEntropyLoss().cuda(args.gpu)
 
-    checkpoint = torch.load(args.checkpoint)
-    state_dict = checkpoint['state_dict']
-    model_dict = model.state_dict()
-    
-    param_value = list(state_dict.values())
-    index = 0
-    
-    for k in model_dict.keys():
-        if 'aw' in k or 'classifier' in k:
-            continue
-        model_dict[k] = param_value[index]
-        index += 1
-         
-    model.load_state_dict(model_dict)
-    
-    temperature_param = []
-    classifier_param = []
-    for n, p in model.named_parameters():
-        if 'aw' in n:
-            temperature_param.append({'params': p, 'lr': args.lrt})
-        elif 'classifier' in n:
-            classifier_param.append({'params': p, 'lr': args.lr, 'momentum': args.momentum, 'weight_decay': args.weight_decay})
-    
-    optimizer = torch.optim.SGD(classifier_param)
-    optimizer_t = torch.optim.SGD(temperature_param)
-    optimizers = (optimizer, optimizer_t)
+    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     
     scheduler = StepLR(optimizer, step_size=30, gamma=0.1)
     
@@ -294,58 +274,88 @@ def main_worker(gpu, ngpus_per_node, args):
         validate(val_loader, model, criterion, args)
         return
     
-#     model.module.disable_t() # disable all temperature gradient
-#     if args.enable != None:
-#         model.module.enable_t(index=args.enable)
+    target_layer = f't{args.layer}'
+    tems = [0.0001, 0.001, 0.01, 0.1, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    results = []
     
-    print("start training...")
-    for epoch in range(args.start_epoch, args.epochs):
-        
+    
+    for t in tems:
+        print(f"start training {target_layer} = {t}")
+        # set temperature for target layer and start training
         if args.distributed:
-            train_sampler.set_epoch(epoch)       
-
-        # train for one epoch
-        tloss, tacc1 = train(train_loader, model, criterion, optimizers, epoch, args, writer)
-        
-        # evaluate on validation set
-        loss, acc1, acc5 = validate(val_loader, model, criterion, args)
-        
-        scheduler.step()
-        
-        writer.add_scalar('Train/loss', tloss, epoch+1)
-        writer.add_scalar('Train/acc1', tacc1, epoch+1)
-        writer.add_scalar('Val/loss', loss, epoch+1)
-        writer.add_scalar('Val/acc1', acc1, epoch+1)
-        writer.add_scalar('Val/acc5', acc5, epoch+1)
-        
-        # remember best acc@1 and save checkpoint
-        is_best = acc1 > best_acc1
-        best_acc1 = max(acc1, best_acc1)
-        
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
-            if args.distributed:
-                temperature = [model.module.aw1.t, model.module.aw2.t, model.module.aw3.t, model.module.aw4.t, model.module.aw5.t]
-            else:
-                temperature = [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t]
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'temperature': temperature,
-            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
-
+            model.module.set_temperature({target_layer: t})
         else:
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-            }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
+            model.set_temperature({target_layer: t})
+
+        best_acc1 = 0
+        for epoch in range(args.start_epoch, args.epochs):
+            
+            if args.distributed:
+                train_sampler.set_epoch(epoch)       
+
+            # train for one epoch
+            tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer)
+            
+            # evaluate on validation set
+            loss, acc1, acc5 = validate(val_loader, model, criterion, args)
+            
+            scheduler.step()
+            
+            # writer.add_scalar('Train/loss', tloss, epoch+1)
+            # writer.add_scalar('Train/acc1', tacc1, epoch+1)
+            # writer.add_scalar('Val/loss', loss, epoch+1)
+            # writer.add_scalar('Val/acc1', acc1, epoch+1)
+            # writer.add_scalar('Val/acc5', acc5, epoch+1)
+            
+            # remember best acc@1 and save checkpoint
+            is_best = acc1 > best_acc1
+            best_acc1 = max(acc1, best_acc1)
+            
+            # if not args.multiprocessing_distributed or (args.multiprocessing_distributed
+            #         and args.rank % ngpus_per_node == 0):
+            #     if args.distributed:
+            #         temperature = [model.module.aw1.t, model.module.aw2.t, model.module.aw3.t, model.module.aw4.t, model.module.aw5.t]
+            #     else:
+            #         temperature = [model.aw1.t, model.aw2.t, model.aw3.t, model.aw4.t, model.aw5.t]
+            #     save_checkpoint({
+            #         'epoch': epoch + 1,
+            #         'arch': args.arch,
+            #         'state_dict': model.state_dict(),
+            #         'best_acc1': best_acc1,
+            #         'temperature': temperature,
+            #     }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
+
+            # else:
+            #     save_checkpoint({
+            #         'epoch': epoch + 1,
+            #         'arch': args.arch,
+            #         'state_dict': model.state_dict(),
+            #         'best_acc1': best_acc1,
+            #     }, is_best, filename=f'{args.arch}_best.pth.tar', root=settings.TUNE_T_PATH)
+        
+        results.append((t, best_acc1))
+
+        # reset initialize model weight and optimizer
+        if args.distributed:
+            model.module._initialize_weights()
+        else:
+            model._initialize_weights()
+        optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    plt.title(f'Model performace {target_layer}')
+    plt.xlabel('Temperature')
+    plt.ylabel('Accuracy')
+    plt.xticks(np.arange(0, 10 + 1, 1))
+    plt.scatter(*zip(*results))
+    plt.savefig(os.path.join(args.logdir, f'{args.arch} {target_layer}.png'))
 
 
-def train(train_loader, model, criterion, optimizers, epoch, args, writer):
+
+def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -387,29 +397,15 @@ def train(train_loader, model, criterion, optimizers, epoch, args, writer):
         top5.update(acc5[0], images.size(0))
 
         # compute gradient and do SGD step
-        for opt in optimizers: opt.zero_grad()
+        optimizer.zero_grad()
         loss.backward()
-        for opt in optimizers: opt.step()
+        optimizer.step()
+
+        # for opt in optimizers: opt.zero_grad()
+        # loss.backward()
+        # for opt in optimizers: opt.step()
         
         n_iter = (epoch - 1) * len(train_loader) + i + 1
-            
-        if args.distributed:
-            writer.add_scalars('Temperature', {
-            't0': model.module.aw1.t,
-            't1': model.module.aw2.t,
-            't2': model.module.aw3.t,
-            't3': model.module.aw4.t,
-            't4': model.module.aw5.t,
-        }, n_iter)
-        else:
-            writer.add_scalars('Temperature', {
-                't0': model.aw1.t,
-                't1': model.aw2.t,
-                't2': model.aw3.t,
-                't3': model.aw4.t,
-                't4': model.aw5.t,
-            }, n_iter)
-
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -477,20 +473,6 @@ def validate(val_loader, model, criterion, args):
 
     return losses.avg, top1.avg, top5.avg
 
-
-def set_mode(model, mode='normal'):
-    if mode == 'normal':
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                p.requires_grad = False
-            else:
-                p.requires_grad = True
-    elif mode == 'temperature':
-        for n, p in model.named_parameters():
-            if 'aw' in n:
-                p.requires_grad = True
-            else:
-                p.requires_grad = False
                 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', root=None):
     torch.save(state, filename)
