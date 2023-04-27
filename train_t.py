@@ -85,7 +85,7 @@ parser.add_argument('--dummy', action='store_true', help="use fake data to bench
 parser.add_argument('--logdir', default='runs/tiny-imagenet/independent analysis', type=str, 
                     help="tensorboard logging directory")
 parser.add_argument('--url', type=str, help='pretrained model url')
-parser.add_argument('--layer', type=str, default=0, choices=range(5),
+parser.add_argument('--layer', type=int, default=0, choices=range(5),
                     help='the sw pooling lyaer temperature you wnat to sampled, 0 represent the first sw pooling layer')
 parser.add_argument('--interval', type=float, nargs=2, 
                     help='boundary of sampled temperatures, defined by two float')
