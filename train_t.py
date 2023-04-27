@@ -85,7 +85,7 @@ parser.add_argument('--dummy', action='store_true', help="use fake data to bench
 parser.add_argument('--logdir', default='runs/tiny-imagenet/independent analysis', type=str, 
                     help="tensorboard logging directory")
 parser.add_argument('--url', type=str, help='pretrained model url')
-parser.add_argument('--layer', type=str, default=0, choices=range(5),
+parser.add_argument('--layer', type=int, default=0, choices=range(5),
                     help='the sw pooling lyaer temperature you wnat to sampled, 0 represent the first sw pooling layer')
 parser.add_argument('--interval', type=float, nargs=2, 
                     help='boundary of sampled temperatures, defined by two float')
@@ -93,7 +93,7 @@ parser.add_argument('--samples', default=20, type=int,
                     help='number of samples sampled in interval')
 
 best_acc1 = 0
-
+other_tems = {'t1': 3.5, 't2': 4, 't3': 0.8, 't4': 9}
 
 def main():
     args = parser.parse_args()
@@ -278,7 +278,7 @@ def main_worker(gpu, ngpus_per_node, args):
     tems = [0.0001, 0.001, 0.01, 0.1, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     results = []
     
-    
+    for k, v in other_tems.items(): print(f'{k} = {v:.4f}', end=',')
     for t in tems:
         print(f"start training {target_layer} = {t}")
         # set temperature for target layer and start training
@@ -291,7 +291,7 @@ def main_worker(gpu, ngpus_per_node, args):
         for epoch in range(args.start_epoch, args.epochs):
             
             if args.distributed:
-                train_sampler.set_epoch(epoch)       
+                train_sampler.set_epoch(epoch)
 
             # train for one epoch
             tloss, tacc1 = train(train_loader, model, criterion, optimizer, epoch, args, writer)
@@ -345,13 +345,16 @@ def main_worker(gpu, ngpus_per_node, args):
     
     import matplotlib.pyplot as plt
     import numpy as np
-
+    s = ''
+    for k, v in other_tems.items(): s += f'{k}={v:.4f},'
+    
+    os.makedir(os.path.join(args.logdir, args.arch, s))
     plt.title(f'Model performace {target_layer}')
     plt.xlabel('Temperature')
     plt.ylabel('Accuracy')
     plt.xticks(np.arange(0, 10 + 1, 1))
     plt.scatter(*zip(*results))
-    plt.savefig(os.path.join(args.logdir, f'{args.arch} {target_layer}.png'))
+    plt.savefig(os.path.join(args.logdir, args.arch, s, f'{target_layer}.png'))
 
 
 
