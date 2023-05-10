@@ -86,7 +86,7 @@ def train_model(config, data=None):
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
     train_loader, val_loader = get_loader(args.data)
     
-    save_root = '/home/larry/AWPooling/checkpoints/baysopt/from_scratch/' + config['arch']
+    save_root = '/root/notebooks/nfs/work/larry.lai/AWPooling/checkpoints/rs' + config['arch']
     os.makedirs(save_root, exist_ok=True)
     model = get_network(net=config['arch'], num_class=config['num_class'])
     model.set_temperature(config)
@@ -115,7 +115,6 @@ def train_model(config, data=None):
             optimizer.step()
             
         scheduler.step()
-        print(f"Epoch[{epoch + 1}/90]: loss {running_loss/len(train_loader):.4f}")
         
         running_loss = 0
         corrects = 0
@@ -140,9 +139,6 @@ def train_model(config, data=None):
         acc = acc.data.cpu().numpy()
         checkpoint = Checkpoint.from_directory(save_root)
         session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
-    
-    print(f"trial {session.get_trial_name()}: best acc: {best_acc:.4f}")
-    print("Finish training")
     
     
 def train_from_pretrain(config, data=None):
@@ -241,42 +237,35 @@ def compute_result(path):
 def main(args):
     
     search_space = {
-        "t0": tune.uniform(1e-5, 10),
-        "t1": tune.uniform(1e-5, 10),
-        "t2": tune.uniform(1e-5, 10),
-        "t3": tune.uniform(1e-5, 10),
-        "t4": tune.uniform(1e-5, 10),
+        "t0": tune.uniform(1e-5, 20),
+        "t1": tune.uniform(1e-5, 20),
+        "t2": tune.uniform(1e-5, 20),
+        "t3": tune.uniform(1e-5, 20),
+        "t4": tune.uniform(1e-5, 20),
         "arch": args.arch,
         "num_class": 200,
         "epochs": args.epochs,
         "data": args.data,
     }
     
-    name = args.arch.split('a')[0]
-    pretrain = load_state_dict_from_url(model_urls[name])
-    
-    # define search algorithm
-    algo = BayesOptSearch(metric='accuracy', mode='max', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
-    
     # allocate trial resources
-    trainable = tune.with_resources(train_from_pretrain, {'gpu': args.gpus, 'cpu': args.cpus})
+    trainable = tune.with_resources(train_model, {'gpu': args.gpus, 'cpu': args.cpus})
     
     # define trail scheduler
     asha_scheduler = ASHAScheduler(
         time_attr='epoch',
         metric='accuracy',
         mode='max',
-        grace_period=40,
+        grace_period=70,
     )
     
     tune_config = tune.TuneConfig(
         num_samples=args.num_samples,
-        search_alg=algo,
         scheduler=asha_scheduler,
     )
 
     checkpoint_config = CheckpointConfig(
-        num_to_keep=2,
+        num_to_keep=1,
         checkpoint_score_attribute='accuracy',
         checkpoint_score_order='max'
     )
@@ -288,7 +277,7 @@ def main(args):
     )
 
     tuner = tune.Tuner(
-        tune.with_parameters(trainable, data=pretrain),
+        trainable,
         tune_config=tune_config,
         run_config=run_config,
         param_space=search_space,
@@ -304,43 +293,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--arch', help='model architecture', type=str, default='vgg16aw')
     parser.add_argument('--data', help='path to dataset', type=str, default='/home/larry/Datasets/tiny-imagenet-200')
-    parser.add_argument('--kind', help='acquisition function kind', type=str, default='ucb', choices=['ucb', 'ei', 'pi'])
-    parser.add_argument('--kappa', help='balance of exploration and exploitation in upper confidence bound', type=float, default=2.5)
-    parser.add_argument('--xi', help='balance of exploration and exploitation in expected improvement and probability of improvement', type=float, default=0.0)
     parser.add_argument('--epochs', help='total epochs in each trial', type=int, default=60)
-    parser.add_argument('--num_samples', help='iterations of bayesian optimization', type=int, default=30)
-    parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet')
+    parser.add_argument('--num-samples', help='iterations of bayesian optimization', type=int, default=30)
+    parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet/rs')
     parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
     parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
     
     args = parser.parse_args()
     main(args)
-
-#     search_space = {
-#         "arch": args.arch,
-#         "t0": tune.uniform(1e-5, 0.5),
-#         "t1": tune.uniform(1e-5, 1),
-#         "t2": tune.uniform(1, 5),
-#         "t3": tune.uniform(2, 10),
-#         "t4": tune.uniform(2, 10),
-#     }
-
-#     algo = BayesOptSearch(metric='loss', mode='min', utility_kwargs={'kind': args.kind, 'kappa': args.kappa, 'xi': args.xi})
-#     tune_config = tune.TuneConfig(
-#         num_samples=args.iter,
-#         search_alg=algo
-#     )
-
-#     checkpoint_config = CheckpointConfig(
-#         num_to_keep=1,
-#         checkpoint_score_attribute='accuracy',
-#         checkpoint_score_order='max'
-#     )
-
-#     tuner = tune.Tuner(
-#         tune.with_resources(train_model, {'gpu': 1, 'cpu': 4}),
-#         tune_config=tune_config,
-#         run_config=RunConfig(local_dir='./test_run', name=args.path, checkpoint_config=checkpoint_config),
-#         param_space=search_space,
-#     )
-#     results = tuner.fit()
