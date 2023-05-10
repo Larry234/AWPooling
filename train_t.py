@@ -93,7 +93,7 @@ parser.add_argument('--samples', default=20, type=int,
                     help='number of samples sampled in interval')
 
 best_acc1 = 0
-other_tems = {'t1': 3.5, 't2': 4, 't3': 0.8, 't4': 9}
+other_tems = {'t1': 0.56, 't2': 9.28, 't3': 0.45, 't4': 0.89}
 
 def main():
     args = parser.parse_args()
@@ -348,7 +348,7 @@ def main_worker(gpu, ngpus_per_node, args):
     s = ''
     for k, v in other_tems.items(): s += f'{k}={v:.4f},'
     
-    os.makedir(os.path.join(args.logdir, args.arch, s))
+    os.makedirs(os.path.join(args.logdir, args.arch, s), exist_ok=True)
     plt.title(f'Model performace {target_layer}')
     plt.xlabel('Temperature')
     plt.ylabel('Accuracy')
