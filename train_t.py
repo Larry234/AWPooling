@@ -93,7 +93,9 @@ parser.add_argument('--samples', default=20, type=int,
                     help='number of samples sampled in interval')
 
 best_acc1 = 0
+
 other_tems = {'t1': 0.56, 't2': 0.28, 't3': 0.45, 't4': 0.89}
+
 
 def main():
     args = parser.parse_args()

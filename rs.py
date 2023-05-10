@@ -86,7 +86,7 @@ def train_model(config, data=None):
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
     train_loader, val_loader = get_loader(args.data)
     
-    save_root = '/root/notebooks/nfs/work/larry.lai/AWPooling/checkpoints/rs' + config['arch']
+    save_root = '/home/larry/AWPooling/checkpoints/rs' + config['arch']
     os.makedirs(save_root, exist_ok=True)
     model = get_network(net=config['arch'], num_class=config['num_class'])
     model.set_temperature(config)
@@ -135,7 +135,7 @@ def train_model(config, data=None):
         acc = corrects / len(val_loader.dataset)
         
         best_acc = acc if acc > best_acc else best_acc
-        
+        torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
         acc = acc.data.cpu().numpy()
         checkpoint = Checkpoint.from_directory(save_root)
         session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
