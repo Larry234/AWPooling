@@ -86,7 +86,7 @@ def train_model(config, data=None):
     device = torch.device('cuda' if torch.cuda.is_available else 'cpu')
     train_loader, val_loader = get_loader(args.data)
     
-    save_root = '/home/larry/AWPooling/checkpoints/rs' + config['arch']
+#     save_root = '/root/notebooks/nfs/work/larry.lai/AWPooling/checkpoints/' + config['arch']
     os.makedirs(save_root, exist_ok=True)
     model = get_network(net=config['arch'], num_class=config['num_class'])
     model.set_temperature(config)
@@ -135,10 +135,10 @@ def train_model(config, data=None):
         acc = corrects / len(val_loader.dataset)
         
         best_acc = acc if acc > best_acc else best_acc
-        torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
+#         torch.save(model.state_dict(), os.path.join(save_root, 'last.pt'))
         acc = acc.data.cpu().numpy()
-        checkpoint = Checkpoint.from_directory(save_root)
-        session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)}, checkpoint=checkpoint)
+#         checkpoint = Checkpoint.from_directory(save_root)
+        session.report({"epoch": epoch, "accuracy": float(acc), "loss": running_loss / len(val_loader)})
     
     
 def train_from_pretrain(config, data=None):
@@ -283,8 +283,15 @@ def main(args):
         param_space=search_space,
     )
     
+    if args.resume != '': # restart from previous experiment
+        
+        tuner = tune.Tuner.restore(
+            path=args.resume,
+            trainable=trainable,  
+        )
     results = tuner.fit()
     
+    # generate csv file for experiment result
     compute_result(os.path.join(args.exp, args.arch))
     
 
@@ -298,6 +305,7 @@ if __name__ == '__main__':
     parser.add_argument('--exp', help='path to save experiment result', type=str, default='HPO/tiny-imagenet/rs')
     parser.add_argument('--gpus', help='how many gpus can a trial use, fraction is excepted', type=float, default=1.)
     parser.add_argument('--cpus', help='how many cpus can a trial use, fraction is excepted', type=float, default=2.)
+    parser.add_argument('--resume', help='path to latest checkpoint (default: none)', type=str, default='')
     
     args = parser.parse_args()
     main(args)
