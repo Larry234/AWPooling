@@ -87,7 +87,7 @@ def train_model(config, data=None):
     train_loader, val_loader = get_loader(args.data)
     
 #     save_root = '/root/notebooks/nfs/work/larry.lai/AWPooling/checkpoints/' + config['arch']
-    os.makedirs(save_root, exist_ok=True)
+#     os.makedirs(save_root, exist_ok=True)
     model = get_network(net=config['arch'], num_class=config['num_class'])
     model.set_temperature(config)
     model.to(device)
@@ -213,12 +213,17 @@ def compute_result(path):
     accs = []
 
     for p in exp_path:
-        if not os.path.isdir(p) or 'error.pkl' in os.listdir(p):
-            continue
+        
         trial_name = ""
-        csv_f = pd.read_csv(os.path.join(p, 'progress.csv'))
+        
+        # handling file not exist exception when reading progress file
+        try:
+            csv_f = pd.read_csv(os.path.join(p, 'progress.csv'))
+            f = open(os.path.join(p, 'params.json'))
+        except:
+            continue
+            
         accs.append(max(csv_f['accuracy']))
-        f = open(os.path.join(p, 'params.json'))
         json_f = json.load(f)
 
         params = list(json_f.keys())[-5:]
@@ -229,10 +234,7 @@ def compute_result(path):
 
     df = pd.DataFrame({'tems': tems, 'accs': accs})
     df = df.sort_values(by=['accs'], ascending=False)
-    df.to_csv(os.path.join(path, 'best.csv'), index=False)
-    
-    
-        
+    df.to_csv(os.path.join(path, 'best.csv'), index=False)    
     
 def main(args):
     
@@ -287,7 +289,9 @@ def main(args):
         
         tuner = tune.Tuner.restore(
             path=args.resume,
-            trainable=trainable,  
+            trainable=trainable,
+            resume_errored=True,
+            restart_errored=True
         )
     results = tuner.fit()
     
